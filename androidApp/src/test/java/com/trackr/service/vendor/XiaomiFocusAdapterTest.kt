@@ -54,7 +54,7 @@ class XiaomiFocusAdapterTest {
         assertTrue(paramV2.getBoolean("updatable"))
 
         val capsule = paramV2.getJSONObject("capsule")
-        assertEquals("剩3站", capsule.getString("text"))
+        assertEquals("剩3站6分", capsule.getString("text"))
         assertEquals(0, capsule.getInt("status"))
 
         val baseInfo = paramV2.getJSONObject("baseInfo")

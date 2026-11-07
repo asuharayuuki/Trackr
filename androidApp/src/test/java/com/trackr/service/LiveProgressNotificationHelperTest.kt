@@ -156,7 +156,7 @@ class LiveProgressNotificationHelperTest {
         assertEquals("上海体育馆：2 分钟 · 下一站就到", text)
         assertTrue("正文不应包含剩 0 站", !text.contains("剩 0 站"))
         assertFalse("没到 45 秒内不应说进站", text.contains("即将进站") || text.contains("到站了"))
-        assertEquals("下一站到", liveNotifier.shortCriticalTextFor(stateApproaching))
+        assertEquals("即将进站", liveNotifier.shortCriticalTextFor(stateApproaching))
 
         // 验证到达状态
         val stateArrived = stateApproaching.copy(
@@ -166,7 +166,7 @@ class LiveProgressNotificationHelperTest {
         val notifArrived = liveNotifier.buildNotification(context, stateArrived)
         val arrivedText = notifArrived.extras.getCharSequence("android.text")?.toString().orEmpty()
         assertEquals("上海体育馆：到站了，快去上车", arrivedText)
-        assertEquals("到站了", liveNotifier.shortCriticalTextFor(stateArrived))
+        assertEquals("已到站", liveNotifier.shortCriticalTextFor(stateArrived))
     }
 
     // ---------------- 分组换乘两阶段 ----------------
@@ -201,12 +201,23 @@ class LiveProgressNotificationHelperTest {
     fun shortCriticalText_byPhase() {
         assertEquals("B612 2站", liveNotifier.shortCriticalTextFor(waitingState()))
         assertEquals("等车2站", liveNotifier.shortCriticalTextFor(waitingState().copy(lineName = "高峰专线12")))
+        assertEquals("等待首站发车", liveNotifier.shortCriticalTextFor(waitingState().copy(stopsRemaining = -1)))
         assertEquals("2站下车", liveNotifier.shortCriticalTextFor(onBoardState()))
+        assertEquals("即将到站", liveNotifier.shortCriticalTextFor(onBoardState().copy(stopsRemaining = 0, etaSeconds = 90, isBusArrivedAtStop = false)))
         val arrivedTransfer = onBoardState().copy(stopsRemaining = 0, isBusArrivedAtStop = true)
         assertEquals("换乘", liveNotifier.shortCriticalTextFor(arrivedTransfer))
         val arrivedLast = arrivedTransfer.copy(currentLegIndex = 1)
         assertEquals("已到站", liveNotifier.shortCriticalTextFor(arrivedLast))
-        listOf(waitingState(), onBoardState(), arrivedTransfer, waitingState().copy(stopsRemaining = 12)).forEach {
+
+        // 单线路候车：带分钟（4分钟）、无分钟回退、超过99分钟封顶
+        val singleWithEta = waitingState().copy(legPhase = LegPhase.SINGLE)
+        assertEquals("剩2站4分", liveNotifier.shortCriticalTextFor(singleWithEta))
+        val singleNoEta = singleWithEta.copy(etaSeconds = -1)
+        assertEquals("剩2站", liveNotifier.shortCriticalTextFor(singleNoEta))
+        val singleOver99 = singleWithEta.copy(etaSeconds = 7200) // 120分钟
+        assertEquals("剩2站99分", liveNotifier.shortCriticalTextFor(singleOver99))
+
+        listOf(waitingState(), onBoardState(), arrivedTransfer, waitingState().copy(stopsRemaining = 12), singleOver99).forEach {
             assertTrue(liveNotifier.shortCriticalTextFor(it).length <= 7)
         }
     }
@@ -225,13 +236,13 @@ class LiveProgressNotificationHelperTest {
         val nextStop = liveNotifier.buildTexts(waitingState().copy(stopsRemaining = 0, etaSeconds = 90))
         assertEquals("B612 2 分钟到 科技园", nextStop.title)
         assertEquals("下一站就到", nextStop.content)
-        assertEquals("下一站到", liveNotifier.shortCriticalTextFor(waitingState().copy(stopsRemaining = 0, etaSeconds = 90)))
+        assertEquals("即将进站", liveNotifier.shortCriticalTextFor(waitingState().copy(stopsRemaining = 0, etaSeconds = 90)))
 
         val arrived = waitingState().copy(stopsRemaining = 0, etaSeconds = 30)
         val arrivedTexts = liveNotifier.buildTexts(arrived)
         assertEquals("B612 到站了 · 科技园", arrivedTexts.title)
         assertEquals("快去上车，上车后点「我已上车」", arrivedTexts.content)
-        assertEquals("到站了", liveNotifier.shortCriticalTextFor(arrived))
+        assertEquals("已到站", liveNotifier.shortCriticalTextFor(arrived))
     }
 
     @Test

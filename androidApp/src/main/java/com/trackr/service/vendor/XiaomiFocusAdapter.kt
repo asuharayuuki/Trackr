@@ -173,18 +173,11 @@ object XiaomiFocusAdapter {
     fun buildJsonPayload(state: TrackingSessionState, nextLineName: String? = null): String {
         val isArrived = ArrivalRules.isSessionArrived(state)
 
-        val capsuleText: String
+        val capsuleText = notifierTexts.shortCriticalTextFor(state)
         val title: String
         val content: String
         val subTitle: String
         if (state.legPhase == LegPhase.SINGLE) {
-            capsuleText = when {
-                isArrived -> "已到站"
-                state.stopsRemaining == 0 -> "即将进站"
-                state.stopsRemaining > 0 -> "剩${state.stopsRemaining}站"
-                else -> "追踪中"
-            }
-
             title = if (state.endStopName.isNotEmpty()) {
                 "${state.lineName} 开往 ${state.endStopName}"
             } else {
@@ -202,7 +195,6 @@ object XiaomiFocusAdapter {
         } else {
             // 分组换乘两阶段：与系统通知共用同一套文案
             val texts = notifierTexts.buildTexts(state, nextLineName)
-            capsuleText = texts.shortCriticalText
             title = texts.title
             content = texts.content
             subTitle = texts.subText

@@ -349,17 +349,19 @@ class LiveProgressNotifier(
 
     /**
      * 状态栏胶囊短文本（Android 16 shortCriticalText，<= 7 字符）。
-     * - 等车："B612 2站"，放不下时"等车2站"；车下一站就到上车站时"下一站到"
-     * - 乘车："2站下车"；到换乘站"换乘"
-     * 「到站」只按 [ArrivalRules] 判（ETA 1..45 秒或已停靠），剩 0 站但没到不写「即将进站」
+     * - 等车："B612 2站"，放不下时"等车2站"；车下一站就到上车站时"即将进站"
+     * - 乘车："2站下车"；到换乘站"换乘"；即将到目的地"即将到站"
+     * - 单线："剩3站5分"，超过99分钟封顶显示99分；无分钟数据时"剩3站"
+     * 「到站」只按 [ArrivalRules] 判（ETA 1..45 秒或已停靠），剩 0 站但没到写「即将进站」
      */
     fun shortCriticalTextFor(state: TrackingSessionState): String {
         val isArrived = isArrivedState(state)
+        val minutes = ArrivalText.minutesOf(state.etaSeconds)?.coerceAtMost(99)
         return when (state.legPhase) {
             LegPhase.WAITING_BOARD -> when {
-                state.stopsRemaining < 0 -> "等车中"
-                isArrived -> "到站了"
-                state.stopsRemaining == 0 -> "下一站到"
+                state.stopsRemaining < 0 -> "等待首站发车"
+                isArrived -> "已到站"
+                state.stopsRemaining == 0 -> "即将进站"
                 else -> {
                     val withLine = "${state.lineName} ${state.stopsRemaining}站"
                     if (withLine.length <= MAX_SHORT_TEXT_LENGTH) withLine else "等车${state.stopsRemaining}站"
@@ -368,17 +370,23 @@ class LiveProgressNotifier(
             LegPhase.ON_BOARD -> when {
                 isArrived && !isLastLeg(state) -> "换乘"
                 isArrived -> "已到站"
-                state.stopsRemaining == 0 -> "准备下车"
+                state.stopsRemaining == 0 -> "即将到站"
                 state.stopsRemaining > 0 -> "${state.stopsRemaining}站下车"
                 else -> "乘车中"
             }
             LegPhase.SINGLE -> {
                 val isMultiLeg = state.totalLegs > 1
                 when {
-                    isArrived && isMultiLeg && !isLastLeg(state) -> "换乘中"
-                    isArrived -> "到站了"
-                    state.stopsRemaining == 0 -> "下一站到"
-                    state.stopsRemaining > 0 -> "剩${state.stopsRemaining}站"
+                    isArrived && isMultiLeg && !isLastLeg(state) -> "换乘"
+                    isArrived -> "已到站"
+                    state.stopsRemaining == 0 -> "即将进站"
+                    state.stopsRemaining > 0 -> {
+                        if (minutes != null) {
+                            "剩${state.stopsRemaining}站${minutes}分"
+                        } else {
+                            "剩${state.stopsRemaining}站"
+                        }
+                    }
                     else -> "追踪中"
                 }
             }
