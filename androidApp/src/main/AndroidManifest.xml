@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- 应用内更新：下载完自己调系统安装器（用户还要在设置里允许「安装未知应用」） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 冰箱 (IceBox) SDK 解冻权限 -->
+    <uses-permission android:name="com.catchingnow.icebox.SDK" />
 
     <queries>
         <!-- 支付宝 -->
@@ -31,6 +33,10 @@
 
         <!-- 云闪付 -->
         <package android:name="com.unionpay" />
+
+        <!-- 冰箱 (IceBox) -->
+        <package android:name="com.catchingnow.icebox" />
+        <provider android:authorities="com.catchingnow.icebox.SDK;com.catchingnow.icebox.STATE" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="upwallet" />
@@ -130,6 +136,22 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_paths" />
         </provider>
+
+        <!-- 冰箱 (IceBox) SDK 状态监听与回调 -->
+        <receiver
+            android:name="com.catchingnow.icebox.sdk_client.StateReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.catchingnow.icebox.SDK_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 申请冰箱权限并自动解冻的透明 Activity -->
+        <activity
+            android:name="com.trackr.util.IceBoxDefrostActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true" />
 
     </application>
 
