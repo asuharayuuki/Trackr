@@ -8,6 +8,7 @@ import com.trackr.core.model.EngineMode
 import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.model.RailMode
+import com.trackr.core.model.ThemeMode
 import com.trackr.core.model.UiMode
 import com.trackr.data.repository.IScheduledReminderRepository
 import com.trackr.ui.platform.LiveUpdateAccess
@@ -51,6 +52,7 @@ data class MeUiState(
     val versionName: String? = null,
     val elderMode: Boolean = false,
     val railMode: RailMode = RailMode.Horizontal,
+    val themeMode: ThemeMode = ThemeMode.System,
     val userMessages: List<UserMessage> = emptyList()
 )
 
@@ -70,11 +72,13 @@ sealed interface MeEvent {
     data object OpenAlertChannelSettings : MeEvent
     data class SetElderMode(val enabled: Boolean) : MeEvent
     data class SetRailMode(val mode: RailMode) : MeEvent
+    data class SetThemeMode(val mode: ThemeMode) : MeEvent
     data class MessageShown(val id: Long) : MeEvent
 
     data class OpenReminder(val id: String) : MeEvent
     data object OpenAmapKey : MeEvent
     data object OpenAbout : MeEvent
+    data object OpenThemeSettings : MeEvent
 }
 
 /** 到站前提醒能选的站数（和通知上「切换」按钮的 1 → 2 → 3 一致） */
@@ -108,6 +112,7 @@ class MeViewModel(
         .combine(settings.autoStopAfterBoarding) { part, enabled -> part.copy(autoStopAfterBoarding = enabled) }
         .combine(settings.uiMode) { part, mode -> part.copy(elderMode = mode == UiMode.Elder) }
         .combine(settings.railMode) { part, mode -> part.copy(railMode = mode) }
+        .combine(settings.themeMode) { part, mode -> part.copy(themeMode = mode) }
 
     private val mapKeyStatus = combine(amapKeys.hasMapKey, amapKeys.canShowMap) { has, canShow ->
         amapKeyStatusText(has, canShow)
@@ -134,7 +139,8 @@ class MeViewModel(
                 settings.showTransitCodeButton.value,
                 settings.uiMode.value == UiMode.Elder,
                 settings.railMode.value,
-                settings.autoStopAfterBoarding.value
+                settings.autoStopAfterBoarding.value,
+                settings.themeMode.value
             ),
             reminderRepository.reminders.value,
             liveUpdateStatus.value,
@@ -163,9 +169,10 @@ class MeViewModel(
             // 第 30 步只换主题；长辈版导航和页面在第 31–34 步
             is MeEvent.SetElderMode -> settings.setUiMode(if (event.enabled) UiMode.Elder else UiMode.Standard)
             is MeEvent.SetRailMode -> settings.setRailMode(event.mode)
+            is MeEvent.SetThemeMode -> settings.setThemeMode(event.mode)
             is MeEvent.MessageShown -> notices.consume(event.id)
             // 导航事件由 Route 处理
-            is MeEvent.OpenReminder, MeEvent.OpenAmapKey, MeEvent.OpenAbout -> Unit
+            is MeEvent.OpenReminder, MeEvent.OpenAmapKey, MeEvent.OpenAbout, MeEvent.OpenThemeSettings -> Unit
         }
     }
 
@@ -194,6 +201,7 @@ class MeViewModel(
         showOnLockScreen = part.showOnLockScreen,
         elderMode = part.elderMode,
         railMode = part.railMode,
+        themeMode = part.themeMode,
         // 和原来一样：实时通知关着时不显示胶囊权限
         liveUpdate = liveUpdate?.takeIf { part.liveNotification },
         // 只在真有问题时出现，正常时那一行不该占地方
@@ -212,6 +220,7 @@ class MeViewModel(
         val showTransitCodeButton: Boolean = true,
         val elderMode: Boolean = false,
         val railMode: RailMode = RailMode.Horizontal,
-        val autoStopAfterBoarding: Boolean = true
+        val autoStopAfterBoarding: Boolean = true,
+        val themeMode: ThemeMode = ThemeMode.System
     )
 }

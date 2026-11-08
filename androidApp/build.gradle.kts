@@ -24,10 +24,9 @@ fun localOrEnv(name: String): String =
     System.getenv(name)?.trim().orEmpty().ifBlank { localProperties.getProperty(name, "").trim() }
 
 // 高德 Android 平台 Key：与「PackageName + 签名 SHA-1」绑定。
-// debug 与 release 使用同一个 PackageName（见下方 buildTypes），而高德控制台允许在**同一个 Key**
-// 里同时填写「发布版 SHA-1」和「调试版 SHA-1」，因此一把 Key 即可同时覆盖两种构建产物。
+// debug 的 PackageName 带 .debug 后缀，需在高德控制台为该包名配置对应的 Android Key。
 val amapAndroidKeyFallback = localOrEnv("AMAP_ANDROID_KEY")
-// 仅在使用自定义签名 / 需要为某个变体单独配 Key 时才需要这两项，通常留空
+// 可分别配置 debug / release 的 Android Key，未配置时回落到通用值。
 val amapAndroidKeyDebug = localOrEnv("AMAP_ANDROID_KEY_DEBUG").ifBlank { amapAndroidKeyFallback }
 val amapAndroidKeyRelease = localOrEnv("AMAP_ANDROID_KEY_RELEASE").ifBlank { amapAndroidKeyFallback }
 // 高德 Web 服务 Key（restapi.amap.com），与 Android 平台 Key 互不通用。
@@ -38,8 +37,9 @@ android {
 
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
-        versionCode = 11
-        versionName = "0.1.7"
+        resValue("string", "shortcut_target_package", applicationId!!)
+        versionCode = 12
+        versionName = "0.1.8"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         // 第 9 步存储开关 USE_NEW_STORE 的默认值（true = Room + DataStore）；运行时可用 files/store_switch 覆盖，见 StoreSwitch
@@ -80,8 +80,8 @@ android {
 
     buildTypes {
         debug {
-            // 刻意不再加 .d 后缀：与 release 共用 PackageName，
-            // 这样同一个高德 Key（同时填了发布版 + 调试版 SHA-1）对两种构建都有效。
+            applicationIdSuffix = ".debug"
+            resValue("string", "shortcut_target_package", "${defaultConfig.applicationId}$applicationIdSuffix")
             enableUnitTestCoverage = true
             buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyDebug\"")
             manifestPlaceholders["AMAP_ANDROID_KEY"] = amapAndroidKeyDebug
@@ -115,6 +115,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        resValues = true
     }
 
     packaging {
@@ -212,10 +213,11 @@ tasks.register("amapKeyStatus") {
             |  AMAP_ANDROID_KEY_RELEASE  : ${state(amapAndroidKeyRelease)}
             |  AMAP_WEB_KEY              : ${state(amapWebServiceKey)}
             |
-            |包名（提交到高德开放平台时填写，debug / release 一致）
-            |  PackageName : com.github.u5151561.trackr
+            |包名（提交到高德开放平台时填写）
+            |  debug   : com.github.u5151561.trackr.debug
+            |  release : com.github.u5151561.trackr
             |
-            |一个 Key 可同时填写「发布版 SHA-1」与「调试版 SHA-1」，两种构建都能出图。
+            |debug / release 包名不同，请分别配置匹配包名和签名 SHA-1 的 Android Key。
             |签名 SHA-1 可在 App 内「配置 Key」弹窗一键复制。
             """.trimMargin()
         )
