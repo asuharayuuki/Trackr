@@ -1,12 +1,47 @@
 package com.trackr.feature.route
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import com.trackr.core.navigation.TrackrNavigator
 import com.trackr.core.navigation.ScreenKey
-import com.trackr.ui.navigation.PendingScreen
+import com.trackr.ui.navigation.LocalAppViewModelStoreOwner
+import com.trackr.ui.screens.routedetail.RouteDetailRoute
+import com.trackr.ui.screens.routedetail.RouteDetailViewModel
+import com.trackr.ui.screens.routeplan.RoutePlanRoute
+import com.trackr.ui.screens.routeplan.RoutePlanViewModel
+import org.koin.compose.viewmodel.koinViewModel
 
 actual fun EntryProviderScope<NavKey>.routeEntries(navigator: TrackrNavigator) {
-    entry<ScreenKey.RoutePlan> { PendingScreen("路线规划") }
-    entry<ScreenKey.RouteDetail> { PendingScreen("路线详情") }
+    entry<ScreenKey.RoutePlan> {
+        // 规划页和路线详情页共用这两个 ViewModel，取根组合级（TrackrRoot 里已经先取过一次）
+        val appOwner = LocalAppViewModelStoreOwner.current
+        val routePlanViewModel: RoutePlanViewModel = koinViewModel(viewModelStoreOwner = appOwner)
+        val routeDetailViewModel: RouteDetailViewModel = koinViewModel(viewModelStoreOwner = appOwner)
+        val lifecycleOwner = LocalLifecycleOwner.current
+        // 页面在 commonMain（RoutePlanRoute）；地图由 RouteMap 的 iOS 实现决定画不画（真机高德 SDK，arm64 模拟器不画）
+        RoutePlanRoute(
+            viewModel = routePlanViewModel,
+            routeDetailViewModel = routeDetailViewModel,
+            // 「去看看」：切到首页页签，让编辑收藏页成为栈顶（已有就退到它，没有就回根再打开）
+            onNavigateToFavorites = dropUnlessResumed {
+                navigator.showInTab(ScreenKey.Home, ScreenKey.FavoritesEdit)
+            },
+            onNavigateToLineDetail = { line, _ ->
+                // 只在 RESUMED 时跳，防连点重复入栈（同 dropUnlessResumed）
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    navigator.open(line.toLineDetailKey())
+                }
+            }
+        )
+    }
+
+    // 路线详情（第 22 步）：和规划页共用一个 RouteDetailViewModel，追踪状态两边一致
+    entry<ScreenKey.RouteDetail> { key ->
+        val appOwner = LocalAppViewModelStoreOwner.current
+        val routeDetailViewModel: RouteDetailViewModel = koinViewModel(viewModelStoreOwner = appOwner)
+        RouteDetailRoute(groupId = key.groupId, viewModel = routeDetailViewModel, navigator = navigator)
+    }
 }

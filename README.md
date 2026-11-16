@@ -43,9 +43,9 @@
 
 ## 📖 项目简介
 
-追客（Trackr / BusOnRoad）是一款 Android 实时公交到站追踪应用。它把「下一班还有几分钟」放在第一屏，围绕公交、线路、站点和换乘路线组织信息，没有开屏广告，也没有信息流。
+追客（Trackr / BusOnRoad）是一款实时公交到站追踪应用，以 Android 为主，iOS 版复用同一套页面（目前只出未签名包，见 [iOS 启动工程](docs/ios.md)）。它把「下一班还有几分钟」放在第一屏，围绕公交、线路、站点和换乘路线组织信息，没有开屏广告，也没有信息流。
 
-应用基于 **Material Design 3 Expressive** 设计，采用 **MAD 分层架构 + Kotlin Multiplatform**：业务页面、状态和大部分 UI 在 `commonMain`，Android 平台能力经接口注入。数据来自车来了与掌上公交两个实时数据源，按城市自动选择可用通道。
+应用基于 **Material Design 3 Expressive** 设计，采用 **MAD 分层架构 + Kotlin Multiplatform**：业务页面、状态和 UI 在 `commonMain`，Android / iOS 的平台能力经接口注入。数据来自车来了与掌上公交两个实时数据源，按城市自动选择可用通道。
 
 ---
 
@@ -54,14 +54,14 @@
 ### 公交首页
 
 - **追踪卡片**：正在追踪的线路显示下一班倒计时、剩余站数和「结束」入口，切换页面不丢状态。
-- **收藏**：按上车站展示每条收藏线路的到站时间；支持排序、分组和编辑。
+- **收藏**：线路、整个站点、换乘路线都能收藏，排在同一个列表里；按上车站展示到站时间，支持排序、分组（可设颜色）和编辑。
 - **附近站点**：按距离列出周边站点，直接展开多条线路的到站信息。
 - **乘车码**：悬浮按钮一键打开，跟随底部页签收起 / 展开移动。
 - **城市切换**：首页标题点开城市列表，切换城市后收藏按城市分开显示。
 
 ### 线路与站点
 
-- **线路详情**：竖向时间轴走向条，标出每个站的站序、途经车辆和当前候车站；支持换向、时刻表、收藏和开始追踪。
+- **线路详情**：横排或竖排走向条，标出每个站的站序、途经车辆和当前候车站；支持换向、时刻表、收藏和开始追踪，也可以只追某一辆车到指定站（下车提醒）。
 - **一起等多条线路**：在站点详情里勾选任意条线路一起等，等车阶段只发一次站点请求；车到站后可以确认「上了哪辆」。
 - **到站前提醒**：按时间创建定时提醒，到点自动开始追踪，快到站时发通知。
 - **站点详情**：多物理站台切换、地铁换乘标签、途经线路综合到站看板。
@@ -76,8 +76,8 @@
 
 - **搜索**：拼音、汉字模糊匹配，线路按方向一行显示「始发 → 终点」，区分主线和区间车。
 - **通知与桌面**：常驻进度通知、到站提醒通知、Glance 桌面微件；小米设备额外适配焦点通知。
-- **长辈版**：单列大字号界面，三档字号（1.0 / 1.5 / 2.0 倍），按钮不小于 64 dp。
-- **深色模式**：跟随系统，地图同步切换夜间样式。
+- **长辈版**：单列大字号界面，没有底部页签和地图规划；系统字体放大到 2 倍文字也不被裁，按钮不小于 64 dp。
+- **主题**：浅色 / 深色可跟随系统或手动选，可换配色风格和主题色；地图同步切换夜间样式。
 
 ---
 
@@ -85,12 +85,12 @@
 
 ```text
 :androidApp          Android 壳：Activity、追踪服务、通知、桌面微件、定位、高德 Key 存储
-:composeApp          根 Composable：主题、3 个页签、NavDisplay、Koin 模块装配
+:composeApp          根 Composable：主题、3 个页签、长辈版单栈、NavDisplay、Koin 模块装配；iosMain 是 iOS 宿主入口和平台能力
 :core:designsystem   设计系统：颜色、字体、图标、通用文案
 :core:model          领域模型（纯 Kotlin）
 :core:domain         领域逻辑：到站规则、追踪状态机、坐标换算
 :core:network        Ktor 客户端、车来了 / 掌上公交 / 高德 Web 接口
-:core:data           仓库实现、追踪会话、收藏合并、高德 Key 两槽
+:core:data           仓库实现、追踪会话、收藏合并、高德 Key 各槽
 :core:database       Room（trackr.db）
 :core:datastore      DataStore：设置、高德 Key、追踪会话
 :core:navigation     Navigation 3 的页面键与返回栈
@@ -102,14 +102,15 @@
 :feature:line        线路详情、时刻表
 :feature:route       路线规划、路线详情、高德地图
 :feature:favorites   收藏编辑与分组排序
-:feature:me          我的、定时提醒、高德 Key、关于
+:feature:me          我的、定时提醒、高德 Key、主题设置、关于
+iosApp/              Xcode 宿主（UIKit 薄壳）和 TrackrWidgets 扩展
 ```
 
 约定：
 
 - UI 走单向数据流：`ViewModel` 暴露 `StateFlow<UiState>`，页面是无状态的 `Screen(state, onEvent)`。
 - 功能模块只依赖 `:core:*`，模块之间不互相依赖；跨模块组件下沉到 `:core:ui`。
-- Android 专有能力（定位、签名、乘车码、焦点通知、地图 SDK）放在 `androidMain`，`commonMain` 只依赖接口。
+- Android 专有能力（定位、签名、乘车码、焦点通知）放在 `:androidApp`，高德地图 SDK 放 `:feature:route` 的 `androidMain`；`commonMain` 只依赖接口。
 - 不同功能的改动分开提交，提交信息沿用 `type(scope): 描述`。
 
 ---
@@ -122,10 +123,10 @@
 | UI | Jetpack Compose、Compose Multiplatform 1.12、Material 3 Expressive |
 | 导航 | AndroidX Navigation 3（类型安全页面键、每个页签独立返回栈） |
 | 依赖注入 | Koin 4.2 |
-| 网络 | Ktor 3.6（Android 用 OkHttp 引擎）、Kotlinx Serialization |
+| 网络 | Ktor 3.6（Android 用 OkHttp 引擎，iOS 用 Darwin）、Kotlinx Serialization |
 | 本地存储 | Room 2.8（SQLite）、DataStore Preferences |
 | 桌面微件 | Glance 1.2、WorkManager |
-| 地图与算路 | 高德 3dmap + location + search（仅 Android） |
+| 地图与算路 | Android：高德 3dmap + location + search；iOS：高德 Web 算路，真机另接 AMap3DMap |
 | 构建 | Gradle 9.8、AGP 9.5、Version Catalogs、约定插件 |
 | 性能 | Baseline Profile、Macrobenchmark、Compose 稳定性配置 |
 | 测试 | JUnit 4、Robolectric、Turbine、Ktor MockEngine、Jacoco |
@@ -173,6 +174,8 @@
 
 传到 GitHub Release 时按 `trackr-<版本>-arm64-v8a.apk` / `trackr-<版本>-armeabi-v7a.apk` 命名，应用会按设备架构下载对应包。
 
+iOS 包（未签名，需自行重签）用 Xcode 打包，命令和限制见 [iOS 启动工程](docs/ios.md#打包-ipa)，发布资产命名 `trackr-<版本>-unsigned.ipa`。
+
 ### 重新生成 README 截图
 
 ```bash
@@ -185,7 +188,7 @@
 
 ## 🔑 高德 SDK 用法
 
-路线规划页的地图和公交算路依赖高德。这一节说明**项目里怎么用**，以及**自己构建时怎么配 Key**。
+路线规划页的地图和公交算路依赖高德。这一节说明**项目里怎么用**，以及**自己构建时怎么配 Key**。以下都是 Android 的做法；iOS 另有独立的 iOS Key 槽和配置方式，见 [iOS 启动工程](docs/ios.md#本机-key-与签名)。
 
 ### 用到了哪些能力
 
@@ -305,6 +308,12 @@ AMAP_WEB_KEY=你的 Web 服务 Key
 - **算路提示额度不足**：Web 服务 Key 的个人开发者配额较低（约 3 QPS），把应用内配置换成自己的 Key。
 - **自己编译后地图不出图**：debug 签名和发布签名不同，需要把当前构建的 SHA-1 也加进同一个 Key，或单独注册。
 - **16 KB 页设备上地图加载失败**：确认依赖是 `11.2.100` 及以上。
+
+---
+
+## iOS 开发
+
+已提供复用现有 CMP 页面的 Xcode 宿主，打开 `iosApp/Trackr.xcodeproj` 的 Trackr scheme 即可构建。模拟器运行、存储说明和当前能力范围见 [iOS 启动工程](docs/ios.md)。
 
 ---
 

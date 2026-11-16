@@ -68,6 +68,13 @@ fun LineDetailRoute(
                         viewModel.startTrackingSelectedStop()
                     }
                 }
+                LineDetailEvent.ToggleTrackFollowedBus -> {
+                    if (state.trackedPinnedBusId != null && state.trackedPinnedBusId == state.followedBusId) {
+                        viewModel.stopTracking()
+                    } else {
+                        viewModel.startTrackingFollowedBus()
+                    }
+                }
                 // 一点就开默认渠道，「每次询问」才弹选择（不用长按）
                 LineDetailEvent.OpenTransitCode -> when (val provider = state.preferredTransitCodeProvider) {
                     TransitCodeProvider.ALIPAY, TransitCodeProvider.UNIONPAY -> transitCodeLauncher.open(provider)

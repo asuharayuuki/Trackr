@@ -5,4 +5,7 @@
     <string name="ui_code_chooser_remember">以后都用这个（可在「我的」里改）</string>
     <string name="ui_elder_show_transit_code">出示乘车码</string>
     <string name="ui_elder_got_it">知道了</string>
+    <!-- 线路排序切换（issue #56，站点页、首页附近站） -->
+    <string name="ui_sort_default">默认顺序</string>
+    <string name="ui_sort_by_arrival">先到的在前</string>
 </resources>

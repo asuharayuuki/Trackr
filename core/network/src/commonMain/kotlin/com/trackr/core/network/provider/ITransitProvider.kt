@@ -2,6 +2,7 @@ package com.trackr.core.network.provider
 
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
@@ -27,6 +28,20 @@ interface ITransitProvider {
      * 掌上公交的站点接口只给「x 站」文字，要车辆明细必须再按线路查。
      */
     fun stopDetailIncludesBuses(): Boolean = true
+
+    /**
+     * 这个城市此刻能不能查到数据。
+     *
+     * 车来了 / 掌上公交是统一公网入口，恒为 true；掌上出行是各城市自己一台服务器，
+     * 有些城市的服务器常年不在线，需要真连一次才知道。默认 true，别的实现不用改。
+     */
+    suspend fun isCityReachable(city: TransitCity): Boolean = true
+
+    /**
+     * 这个城市的全部线路（首页直接列出来用）。
+     * 返回 null 表示该数据源不支持「列全部」，调用方应退回搜索。
+     */
+    suspend fun listAllLines(city: TransitCity): List<BusLineSummary>? = null
 
     suspend fun getSupportedCities(): List<TransitCity>
     suspend fun resolveCityByLocation(wgsLat: Double, wgsLng: Double): String?

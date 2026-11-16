@@ -86,9 +86,12 @@ import com.trackr.core.designsystem.resources.ic_delete
 import com.trackr.core.designsystem.resources.ic_drag
 import com.trackr.core.designsystem.resources.ic_edit
 import com.trackr.core.designsystem.resources.ic_plus
+import com.trackr.core.designsystem.resources.ic_place
+import com.trackr.core.designsystem.theme.TrackrTheme
 import com.trackr.core.designsystem.resources.ic_route
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.TransitGroup
 import com.trackr.core.model.displayLineName
 import com.trackr.core.navigation.TrackrNavigator
@@ -104,6 +107,7 @@ import com.trackr.feature.favorites.resources.fav_edit_delete_this_group
 import com.trackr.feature.favorites.resources.fav_edit_drag
 import com.trackr.feature.favorites.resources.fav_edit_empty
 import com.trackr.feature.favorites.resources.fav_edit_group_actions
+import com.trackr.feature.favorites.resources.fav_edit_group_color
 import com.trackr.feature.favorites.resources.fav_edit_group_dialog_title
 import com.trackr.feature.favorites.resources.fav_edit_group_name
 import com.trackr.feature.favorites.resources.fav_edit_group_name_hint
@@ -125,8 +129,11 @@ import kotlin.math.roundToInt
 sealed interface FavoritesEditEvent {
     data object Back : FavoritesEditEvent
     data object Done : FavoritesEditEvent
-    data class CreateGroup(val name: String) : FavoritesEditEvent
+    data class CreateGroup(val name: String, val color: GroupColor? = null) : FavoritesEditEvent
     data class RenameGroup(val groupId: String, val name: String) : FavoritesEditEvent
+
+    /** 改分组颜色（issue #38），null = 不设颜色 */
+    data class SetGroupColor(val groupId: String, val color: GroupColor?) : FavoritesEditEvent
     data class DeleteGroup(val groupId: String) : FavoritesEditEvent
     data class ReorderGroups(val ids: List<String>) : FavoritesEditEvent
 
@@ -322,9 +329,9 @@ fun FavoritesEditScreen(
             initial = "",
             confirmLabel = stringResource(FavoritesRes.string.fav_edit_create),
             onDismiss = { showCreateGroup = false },
-            onConfirm = { name ->
+            onConfirm = { name, color ->
                 showCreateGroup = false
-                onEvent(FavoritesEditEvent.CreateGroup(name))
+                onEvent(FavoritesEditEvent.CreateGroup(name, color))
             }
         )
     }
@@ -334,9 +341,10 @@ fun FavoritesEditScreen(
             group = group,
             count = items.count { it.groupId == group.id },
             onDismiss = { editingGroup = null },
-            onRename = { name ->
+            onSave = { name, color ->
                 editingGroup = null
                 onEvent(FavoritesEditEvent.RenameGroup(group.id, name))
+                if (color != group.color) onEvent(FavoritesEditEvent.SetGroupColor(group.id, color))
             },
             onDelete = {
                 editingGroup = null
@@ -379,10 +387,11 @@ fun FavoritesEditScreen(
     }
 }
 
-/** 一条收藏在列表里的主文案：车是「科技园站上车」，路线是名字（没名字时用起终点） */
+/** 一条收藏在列表里的主文案：车是「科技园站上车」，路线是名字（没名字时用起终点），站是站名 */
 private fun FavoriteItem.title(): String = when (this) {
     is FavoriteItem.Stop -> "${stop.targetStopName}上车"
     is FavoriteItem.Route -> route.title()
+    is FavoriteItem.Station -> station.stopName
 }
 
 private fun TransitGroup.title(): String =
@@ -415,6 +424,10 @@ private fun GroupRow(
     ) {
         DragHandle(handle)
         Spacer(modifier = Modifier.width(8.dp))
+        if (group.color != null) {
+            GroupColorDot(group.color, modifier = Modifier.testTag("group_color_dot_${group.id}"))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = group.name,
@@ -441,7 +454,7 @@ private fun GroupRow(
     }
 }
 
-/** 一行收藏：把手 | 线路号（车）或路线图标 | 主副文案 | 删除 */
+/** 一行收藏：把手 | 线路号（车）、路线图标或站图钉 | 主副文案 | 删除 */
 @Composable
 private fun FavoriteRow(
     item: FavoriteItem,
@@ -470,6 +483,13 @@ private fun FavoriteRow(
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp)
             )
+            // 收藏的站（issue #47）：绿色图钉，和首页一样
+            is FavoriteItem.Station -> Icon(
+                imageVector = vectorResource(Res.drawable.ic_place),
+                contentDescription = null,
+                tint = TrackrTheme.colors.go,
+                modifier = Modifier.size(20.dp)
+            )
         }
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -484,6 +504,11 @@ private fun FavoriteRow(
                 text = buildString {
                     if (item is FavoriteItem.Route) {
                         append("${item.route.originStopName} → ${item.route.destinationStopName}")
+                        append(" · ")
+                    }
+                    // 站：默认方向（只有一个站台时没有）
+                    if (item is FavoriteItem.Station && item.station.platformLabel.isNotBlank()) {
+                        append(item.station.platformLabel)
                         append(" · ")
                     }
                     append(groupName ?: stringResource(Res.string.group_none))
@@ -941,26 +966,30 @@ private fun NameDialog(
     initial: String,
     confirmLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String, GroupColor?) -> Unit
 ) {
     var name by remember(initial) { mutableStateOf(initial) }
+    var color by remember { mutableStateOf<GroupColor?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(FavoritesRes.string.fav_edit_group_name)) },
-                placeholder = { Text(stringResource(FavoritesRes.string.fav_edit_group_name_hint)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("input_group_name")
-            )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(FavoritesRes.string.fav_edit_group_name)) },
+                    placeholder = { Text(stringResource(FavoritesRes.string.fav_edit_group_name_hint)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_group_name")
+                )
+                GroupColorSection(selected = color, onSelect = { color = it })
+            }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(name.trim()) }, enabled = name.isNotBlank()) {
+            TextButton(onClick = { onConfirm(name.trim(), color) }, enabled = name.isNotBlank()) {
                 Text(confirmLabel)
             }
         },
@@ -975,10 +1004,11 @@ private fun EditGroupDialog(
     group: FavoriteGroup,
     count: Int,
     onDismiss: () -> Unit,
-    onRename: (String) -> Unit,
+    onSave: (String, GroupColor?) -> Unit,
     onDelete: () -> Unit
 ) {
     var name by remember(group.id) { mutableStateOf(group.name) }
+    var color by remember(group.id) { mutableStateOf(group.color) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
     if (confirmingDelete) {
@@ -1005,7 +1035,7 @@ private fun EditGroupDialog(
             onDismissRequest = onDismiss,
             title = { Text(stringResource(FavoritesRes.string.fav_edit_group_dialog_title)) },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -1013,6 +1043,7 @@ private fun EditGroupDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    GroupColorSection(selected = color, onSelect = { color = it })
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = { confirmingDelete = true }) {
                         Text(stringResource(FavoritesRes.string.fav_edit_delete_this_group), color = MaterialTheme.colorScheme.error)
@@ -1020,7 +1051,7 @@ private fun EditGroupDialog(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { onRename(name.trim()) }, enabled = name.isNotBlank()) {
+                TextButton(onClick = { onSave(name.trim(), color) }, enabled = name.isNotBlank()) {
                     Text(stringResource(Res.string.action_save))
                 }
             },
@@ -1029,6 +1060,19 @@ private fun EditGroupDialog(
             }
         )
     }
+}
+
+/** 分组对话框里的「颜色」一节：小标题 + 选色 */
+@Composable
+private fun GroupColorSection(selected: GroupColor?, onSelect: (GroupColor?) -> Unit) {
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+        text = stringResource(FavoritesRes.string.fav_edit_group_color),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    GroupColorPicker(selected = selected, onSelect = onSelect)
 }
 
 /** 编辑收藏 Route：读状态、翻译事件 */
@@ -1048,7 +1092,8 @@ fun FavoritesEditRoute(
         onEvent = { event ->
             when (event) {
                 FavoritesEditEvent.Back, FavoritesEditEvent.Done -> back()
-                is FavoritesEditEvent.CreateGroup -> viewModel.createFavoriteGroup(event.name)
+                is FavoritesEditEvent.CreateGroup -> viewModel.createFavoriteGroup(event.name, event.color)
+                is FavoritesEditEvent.SetGroupColor -> viewModel.setFavoriteGroupColor(event.groupId, event.color)
                 is FavoritesEditEvent.RenameGroup -> viewModel.renameFavoriteGroup(event.groupId, event.name)
                 is FavoritesEditEvent.DeleteGroup -> viewModel.deleteFavoriteGroup(event.groupId)
                 is FavoritesEditEvent.ReorderGroups -> viewModel.reorderFavoriteGroups(event.ids)

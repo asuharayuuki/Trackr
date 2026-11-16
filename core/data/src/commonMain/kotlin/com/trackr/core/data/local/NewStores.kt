@@ -28,6 +28,8 @@ class RoomDataStoreTransitStore(
             transitCodeProvider = prefs[SettingsKeys.PREFERRED_TRANSIT_CODE_PROVIDER],
             showTransitCodeButton = prefs[SettingsKeys.SHOW_TRANSIT_CODE_BUTTON],
             autoStopAfterBoarding = prefs[SettingsKeys.AUTO_STOP_AFTER_BOARDING],
+            voiceAlerts = prefs[SettingsKeys.VOICE_ALERTS],
+            sortLinesByArrival = prefs[SettingsKeys.SORT_LINES_BY_ARRIVAL],
             nearbyStopsCount = prefs[SettingsKeys.NEARBY_STOPS_COUNT],
             liveNotificationEnabled = prefs[SettingsKeys.LIVE_NOTIFICATION_ENABLED],
             showOnLockScreen = prefs[SettingsKeys.SHOW_ON_LOCK_SCREEN],
@@ -63,6 +65,14 @@ class RoomDataStoreTransitStore(
 
     override suspend fun saveAutoStopAfterBoarding(enabled: Boolean) {
         settings.edit { it[SettingsKeys.AUTO_STOP_AFTER_BOARDING] = enabled }
+    }
+
+    override suspend fun saveVoiceAlerts(enabled: Boolean) {
+        settings.edit { it[SettingsKeys.VOICE_ALERTS] = enabled }
+    }
+
+    override suspend fun saveSortLinesByArrival(enabled: Boolean) {
+        settings.edit { it[SettingsKeys.SORT_LINES_BY_ARRIVAL] = enabled }
     }
     override suspend fun saveLiveNotificationEnabled(enabled: Boolean) {
         settings.edit { it[SettingsKeys.LIVE_NOTIFICATION_ENABLED] = enabled }
@@ -114,7 +124,7 @@ class RoomDataStoreTransitStore(
 }
 
 /**
- * 收藏合一（第 14 步）：车（favorite_line）、路线（route / route_leg / route_candidate_line）、收藏分组（favorite_group）、
+ * 收藏合一（第 14 步）：车（favorite_line）、路线（route / route_leg / route_candidate_line）、站（favorite_station，issue #47）、收藏分组（favorite_group）、
  * 合一索引（favorite_item）。读在一个事务里，写也在一个事务里（[com.trackr.core.database.dao.FavoritesDao.write]）。
  *
  * 车的 `position`、路线的 `position` / `sortOrder` / `customGroupId` 是写入时的镜像；顺序和分组以 favorite_item 为准，
@@ -129,7 +139,8 @@ class RoomFavoritesStore(private val db: TrackrDatabase) : FavoritesStore {
             routes = if (rows.routes.isEmpty()) null else rows.routes.map { it.toModel() },
             groups = if (rows.groups.isEmpty()) null else rows.groups.map { it.toModel() },
             items = if (rows.items.isEmpty()) null else rows.items.mapNotNull { it.toRecordOrNull() },
-            groupsInitialized = rows.groupsInitialized
+            groupsInitialized = rows.groupsInitialized,
+            stations = rows.stations.map { it.toModel() }
         )
     }
 
@@ -140,6 +151,7 @@ class RoomFavoritesStore(private val db: TrackrDatabase) : FavoritesStore {
             groups = change.groups?.mapIndexed { index, group -> group.toEntity(index) },
             items = change.items?.map { it.toEntity() },
             itemUpdates = change.itemUpdates.map { it.toEntity() },
+            stations = change.stations?.mapIndexed { index, station -> station.toEntity(index) },
             markGroupsInitialized = change.markGroupsInitialized
         )
     }
@@ -175,6 +187,12 @@ class RoomReminderScheduleStateStore(private val db: TrackrDatabase) : ReminderS
 
 /** 高德 Key 在单独的 `trackr_amap_keys`（备份排除）。空串按没填处理，存的时候也不写空串 */
 class DataStoreAmapKeyStore(private val keys: DataStore<Preferences>) : AmapKeyStore {
+    override suspend fun loadIosKey(): String? = keys.data.first()[AmapKeyKeys.IOS]?.trim()?.ifBlank { null }
+    override suspend fun saveIosKey(key: String?) {
+        val value = key?.trim()?.ifBlank { null }
+        keys.edit { if (value == null) it.remove(AmapKeyKeys.IOS) else it[AmapKeyKeys.IOS] = value }
+    }
+
 
     override suspend fun loadAndroidKey(): String? = keys.data.first()[AmapKeyKeys.ANDROID]?.trim()?.ifBlank { null }
 

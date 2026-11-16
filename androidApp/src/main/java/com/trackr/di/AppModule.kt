@@ -24,10 +24,12 @@ import com.trackr.core.domain.platform.UpdateChecker
 import com.trackr.core.domain.tracking.TrackingEngine
 import com.trackr.core.network.provider.chelaile.ChelaileTransitProvider
 import com.trackr.core.network.provider.mygolbs.MygolbsTransitProvider
+import com.trackr.core.network.provider.lenz.LenzTransitProvider
 import com.trackr.core.network.remote.amap.AmapTransitApiClient
 import com.trackr.core.network.remote.chelaile.ChelaileApiClient
 import com.trackr.core.network.remote.common.createTrackrHttpClient
 import com.trackr.core.network.remote.mygolbs.MygolbsApiClient
+import com.trackr.core.network.remote.lenz.LenzApiClient
 import com.trackr.app.di.trackrModules
 import com.trackr.data.local.StorageBackend
 import com.trackr.data.location.AndroidLocationSource
@@ -74,12 +76,15 @@ val appModule: Module = module {
     single<HttpClient> { createTrackrHttpClient() } onClose { it?.close() }
     single { ChelaileApiClient(get()) }
     single { MygolbsApiClient(get()) }
+    single { LenzApiClient(get()) }
     single { ChelaileTransitProvider(get()) }
     single { MygolbsTransitProvider(get()) }
+    single { LenzTransitProvider(get()) }
     single {
         TransitProviderCoordinator(
             chelaileProvider = get<ChelaileTransitProvider>(),
-            mygolbsProvider = get<MygolbsTransitProvider>()
+            mygolbsProvider = get<MygolbsTransitProvider>(),
+            lenzProvider = get<LenzTransitProvider>()
         )
     }
     single { AmapTransitApiClient(get()) }

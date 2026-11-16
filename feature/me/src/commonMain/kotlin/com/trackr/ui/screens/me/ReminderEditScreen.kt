@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.trackr.core.designsystem.component.TrackrBottomActionBar
 import com.trackr.core.designsystem.resources.Res
 import com.trackr.core.designsystem.resources.action_back
 import com.trackr.core.designsystem.resources.action_cancel
@@ -134,13 +135,12 @@ fun ReminderEditScreen(
         },
         bottomBar = {
             if (draft != null) {
-                Surface(color = MaterialTheme.colorScheme.surface) {
+                TrackrBottomActionBar {
                     Button(
                         onClick = { onEvent(ReminderEditEvent.Save) },
                         enabled = state.changed && !state.saving,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
                             .height(48.dp)
                             .testTag("btn_save_reminder")
                     ) {
@@ -188,7 +188,13 @@ fun ReminderEditScreen(
                 }
             }
 
-            item(key = "auto_start") {
+            if (!state.supportsAutoStart) item(key = "notification_only") {
+                SettingsCard(title = stringResource(MeRes.string.me_reminder_after)) {
+                    Text("到点发送通知，打开追客后可开始追踪", modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (state.supportsAutoStart) item(key = "auto_start") {
                 SettingsCard(title = stringResource(MeRes.string.me_reminder_after)) {
                     Row(
                         modifier = Modifier

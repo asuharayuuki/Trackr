@@ -14,7 +14,12 @@ import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -50,6 +55,13 @@ interface TrackingRepository {
 
     /** 下车站辅助判定用的最近一次手机定位（服务定位和 App 前台定位里最后来的那个，所有会话共用） */
     val latestUserFix: UserFix?
+
+    /**
+     * 每来一个手机定位发一次（[updateUserFix]）。追踪轮询跟着它走：定位一来就拉一次车的数据，
+     * 人和车的位置是同一时刻的，判上车 / 下车才不会错开
+     */
+    val userFixes: Flow<UserFix>
+        get() = emptyFlow()
 
     /** 一份会话的当前快照；没有这一份时返回 null */
     fun sessionById(sessionId: String): TrackingSession?
@@ -128,6 +140,9 @@ interface TrackingRepository {
 
     /** 接续所有中断的会话（进程重建后服务起来时用）；按开始先后返回 */
     fun resumeAll(): List<TrackingSession>
+
+    /** Suspend work without losing targets; invalidate every in-flight result and cached fix. */
+    fun pauseAll()
 
     /** 等盘里的会话读完（服务被系统重建时先等它） */
     suspend fun awaitLoaded()
@@ -209,6 +224,9 @@ class DefaultTrackingRepository @OptIn(ExperimentalUuidApi::class) constructor(
     private var userFix: UserFix? = null
     override val latestUserFix: UserFix?
         get() = synchronized(lock) { userFix }
+
+    private val _userFixes = MutableSharedFlow<UserFix>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    override val userFixes: Flow<UserFix> = _userFixes.asSharedFlow()
 
     private val loaded = CompletableDeferred<Unit>()
 
@@ -394,6 +412,7 @@ class DefaultTrackingRepository @OptIn(ExperimentalUuidApi::class) constructor(
 
     override fun updateUserFix(fix: UserFix) {
         synchronized(lock) { userFix = fix }
+        _userFixes.tryEmit(fix)
     }
 
     override fun update(sessionId: String, generation: Int, transform: (TrackingSession) -> TrackingSession?): Boolean =
@@ -405,8 +424,9 @@ class DefaultTrackingRepository @OptIn(ExperimentalUuidApi::class) constructor(
                 lastGeneration = maxOf(lastGeneration, current.generation + 1)
                 lastBuses.remove(sessionId)
                 lastLineBuses.remove(sessionId)
-                userFix = null
-                publish(_sessions.value.filterNot { it.sessionId == sessionId })
+                val remaining = _sessions.value.filterNot { it.sessionId == sessionId }
+                if (remaining.isEmpty()) userFix = null
+                publish(remaining)
             } else {
                 if (next.generation != current.generation) {
                     // 引擎切了程：上一程的车和定位都不再用
@@ -434,6 +454,16 @@ class DefaultTrackingRepository @OptIn(ExperimentalUuidApi::class) constructor(
                 lastLineBuses[sessionId] = lastLineBuses[sessionId].orEmpty() + lineBuses
             }
         }
+    }
+
+    override fun pauseAll() = synchronized(lock) {
+        userFix = null
+        lastBuses.clear()
+        lastLineBuses.clear()
+        val paused = _sessions.value.map {
+            if (it.interrupted) it else it.copy(interrupted = true, generation = nextGeneration())
+        }
+        if (paused != _sessions.value) publish(paused)
     }
 
     override fun resume(sessionId: String): TrackingSession? = synchronized(lock) {

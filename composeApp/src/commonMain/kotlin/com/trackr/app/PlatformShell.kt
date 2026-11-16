@@ -12,7 +12,8 @@ import com.trackr.core.navigation.ScreenKey
 internal expect fun PlatformHost(enabled: Boolean, content: @Composable () -> Unit)
 
 /**
- * 首次打开时的定位 / 通知权限说明与申请。Android：原 MainActivity 里那段；iOS 阶段 G 再做。
+ * 首次打开时的定位 / 通知权限说明与申请。Android：先弹说明再申请定位和通知；
+ * iOS：没有说明对话框，直接申请使用期间定位（通知授权在第一次追踪 / 存提醒时才申请）。
  * 说明对话框和系统权限弹窗都关掉后才组合 [afterOnboarding]，后面的对话框（字号提示）不会叠在它们上面。
  */
 @Composable

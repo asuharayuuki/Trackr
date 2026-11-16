@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 第 4 步从 object 改成类，由 Koin 提供单例，接收器注入它；第 7 步起实现 `:core:domain` 的 [ReminderAlarms]。
  * 每个提醒上次排的触发时刻记在 [ReminderScheduleState] 里（第 9 步）：USE_NEW_STORE 开时在 Room
  * `reminder.lastScheduledTriggerAt`，关时在原来的 `trackr_reminder_schedule_state` 文件。
- * 旧的 [ReminderScheduler] 暂时转发到伴生对象（用旧文件，第 12 步删）。
+ * 原来的 object `ReminderScheduler` 已删（只有文件名还沿用旧名）；纯函数和常量在伴生对象里。
  */
 class ReminderAlarmScheduler(
     context: Context,

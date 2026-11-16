@@ -5,6 +5,7 @@ import com.trackr.core.database.entity.CandidateLineEntity
 import com.trackr.core.database.entity.FavoriteGroupEntity
 import com.trackr.core.database.entity.FavoriteItemEntity
 import com.trackr.core.database.entity.FavoriteLineEntity
+import com.trackr.core.database.entity.FavoriteStationEntity
 import com.trackr.core.database.entity.ReminderEntity
 import com.trackr.core.database.entity.RouteEntity
 import com.trackr.core.database.entity.RouteLegEntity
@@ -13,6 +14,7 @@ import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItemRecord
 import com.trackr.core.model.FavoriteItemType
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.GeoPoint
 import com.trackr.core.model.GroupCategory
@@ -85,6 +87,41 @@ fun FavoriteLineEntity.toModel() = FavoriteStationLine(
     addedAtMillis = addedAtMillis
 )
 
+// ---- 收藏的站（issue #47） ----
+
+fun FavoriteStation.toEntity(position: Int) = FavoriteStationEntity(
+    id = id,
+    position = position,
+    cityId = cityId,
+    cityName = cityName,
+    stopName = stopName,
+    stopId = stopId,
+    physicalStId = physicalStId,
+    namesakeStId = namesakeStId,
+    platformLabel = platformLabel,
+    wgsLat = wgsLat,
+    wgsLng = wgsLng,
+    source = source.name,
+    mygolbsCityCode = mygolbsCityCode,
+    addedAtMillis = addedAtMillis
+)
+
+fun FavoriteStationEntity.toModel() = FavoriteStation(
+    id = id,
+    cityId = cityId,
+    cityName = cityName,
+    stopName = stopName,
+    stopId = stopId,
+    physicalStId = physicalStId,
+    namesakeStId = namesakeStId,
+    platformLabel = platformLabel,
+    wgsLat = wgsLat,
+    wgsLng = wgsLng,
+    source = dataSourceOf(source),
+    mygolbsCityCode = mygolbsCityCode,
+    addedAtMillis = addedAtMillis
+)
+
 // ---- 收藏分组 ----
 
 fun FavoriteGroup.toEntity(position: Int) = FavoriteGroupEntity(
@@ -92,14 +129,17 @@ fun FavoriteGroup.toEntity(position: Int) = FavoriteGroupEntity(
     position = position,
     name = name,
     sortOrder = sortOrder,
-    isDefault = isDefault
+    isDefault = isDefault,
+    color = colorKey
 )
 
 fun FavoriteGroupEntity.toModel() = FavoriteGroup(
     id = id,
     name = name,
     sortOrder = sortOrder,
-    isDefault = isDefault
+    isDefault = isDefault,
+    // 认不出的值原样留着（读的时候 FavoriteGroup.color 给 null），下次整份写回也不丢
+    colorKey = color
 )
 
 // ---- 收藏合一索引（第 14 步） ----

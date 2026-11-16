@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberBottomSheetState
+import com.trackr.ui.bottombar.LocalBottomBarHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +82,10 @@ import com.trackr.feature.me.resources.me_arrival_alert
 import com.trackr.feature.me.resources.me_arrival_alert_desc
 import com.trackr.feature.me.resources.me_auto_stop_after_boarding
 import com.trackr.feature.me.resources.me_auto_stop_after_boarding_desc
+import com.trackr.feature.me.resources.me_export_boarding_trace
+import com.trackr.feature.me.resources.me_export_boarding_trace_desc
+import com.trackr.feature.me.resources.me_voice_alerts
+import com.trackr.feature.me.resources.me_voice_alerts_desc
 import com.trackr.feature.me.resources.me_data_source
 import com.trackr.feature.me.resources.me_elder_mode
 import com.trackr.feature.me.resources.me_elder_mode_desc
@@ -148,7 +153,7 @@ fun MeScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { MeMessageHost(state.userMessages) { onEvent(MeEvent.MessageShown(it)) } },
+        snackbarHost = { MeMessageHost(state.userMessages, Modifier.padding(bottom = LocalBottomBarHeight.current)) { onEvent(MeEvent.MessageShown(it)) } },
         topBar = {
             LargeTopAppBar(
                 title = { Text(text = stringResource(MeRes.string.me_title), fontWeight = FontWeight.Bold) },
@@ -168,7 +173,7 @@ fun MeScreen(
                 start = innerPadding.calculateStartPadding(layoutDirection) + 16.dp,
                 top = innerPadding.calculateTopPadding() + 8.dp,
                 end = innerPadding.calculateEndPadding(layoutDirection) + 16.dp,
-                bottom = innerPadding.calculateBottomPadding() + 24.dp
+                bottom = innerPadding.calculateBottomPadding() + LocalBottomBarHeight.current + 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
@@ -230,6 +235,21 @@ fun MeScreen(
                         subtitle = stringResource(MeRes.string.me_auto_stop_after_boarding_desc),
                         checked = state.autoStopAfterBoarding,
                         onCheckedChange = { onEvent(MeEvent.SetAutoStopAfterBoarding(it)) }
+                    )
+                    if (state.canExportBoardingTrace) {
+                        GroupDivider()
+                        SettingRow(
+                            title = stringResource(MeRes.string.me_export_boarding_trace),
+                            subtitle = stringResource(MeRes.string.me_export_boarding_trace_desc),
+                            onClick = { onEvent(MeEvent.ExportBoardingTrace) }
+                        )
+                    }
+                    GroupDivider()
+                    SwitchRow(
+                        title = stringResource(MeRes.string.me_voice_alerts),
+                        subtitle = stringResource(MeRes.string.me_voice_alerts_desc),
+                        checked = state.voiceAlerts,
+                        onCheckedChange = { onEvent(MeEvent.SetVoiceAlerts(it)) }
                     )
                     GroupDivider()
                     SettingRow(

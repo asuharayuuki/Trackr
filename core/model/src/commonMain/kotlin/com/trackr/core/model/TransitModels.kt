@@ -8,20 +8,22 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class DataSourceType(val displayName: String) {
     CHELAILE("车来了"),
-    MYGOLBS("掌上公交")
+    MYGOLBS("掌上公交"),
+    LENZ("掌上出行")
 }
 
 /**
- * 引擎运行模式：车来了 / 掌上公交（独立单源模式）
+ * 引擎运行模式：车来了 / 掌上公交 / 掌上出行（朗斯）
  */
 @Serializable
 enum class EngineMode(val displayName: String, val shortLabel: String) {
     CHELAILE("车来了", "车来了"),
-    MYGOLBS("掌上公交", "掌上公交")
+    MYGOLBS("掌上公交", "掌上公交"),
+    LENZ("掌上出行", "掌上出行")
 }
 
 /**
- * 城市实体（聚合车来了 cityId 与掌上公交 cityCode）
+ * 城市实体（聚合车来了 cityId、掌上公交 cityCode 与朗斯掌上出行 Server 信息）
  */
 @Serializable
 data class TransitCity(
@@ -31,7 +33,12 @@ data class TransitCity(
     val supportSubway: Boolean = false,
     val isHot: Boolean = false,
     val mygolbsCityCode: String? = null,
-    val province: String = ""
+    val province: String = "",
+    val lenzServerIp: String? = null,
+    val lenzServerPort: Int? = null,
+    val lenzAreaCode: String? = null,
+    /** 朗斯县级公交的上级地级市（如「范县」→「濮阳」），用于同城县级服务器联查 */
+    val lenzRegion: String? = null
 ) {
     /**
      * 城市全局唯一标识（用于 Compose 列表 key，防止仅支持单数据源时 cityId 为空导致 key 重复崩溃）
@@ -40,6 +47,7 @@ data class TransitCity(
         get() = when {
             cityId.isNotBlank() -> "cl_${cityId}_$cityName"
             !mygolbsCityCode.isNullOrBlank() -> "mg_${mygolbsCityCode}_$cityName"
+            !lenzServerIp.isNullOrBlank() -> "lz_${cityName}_$lenzServerIp"
             else -> "name_$cityName"
         }
 
@@ -73,6 +81,14 @@ data class TransitCity(
         return true
     }
 }
+
+/**
+ * 只由朗斯「掌上出行」支撑的县级城市（车来了与掌上公交都没有这个城市）
+ */
+val TransitCity.isLenzOnlyCity: Boolean
+    get() = cityId.isBlank() &&
+        mygolbsCityCode.isNullOrBlank() &&
+        !lenzServerIp.isNullOrBlank()
 
 /**
  * 线路运营状态
@@ -395,14 +411,44 @@ data class TrackingSessionState(
     val boardingMissStreak: Int = 0,
     /** 最近一次用于判上车的定位单调时钟时间；同一定位只计一次 */
     val boardingLastFixElapsedMillis: Long = -1L,
+    /**
+     * 单线路判上车：第一次「看着像上了车」的那个定位的单调时刻（和 [boardingLastFixElapsedMillis] 同一时基）；-1 = 还没有。
+     * 要隔一段时间之后的另一个定位也这么说，才算真上了车
+     */
+    val boardingPositiveFixElapsedMillis: Long = -1L,
     /** 手动确认上车后尚未锁到车的补查次数 */
     val boardingLockAttempts: Int = 0,
     /** ON_BOARD：疑似锁错车时，离用户更近的那辆车 */
     val relockCandidateBusId: String? = null,
     /** 连续满足“应改锁 [relockCandidateBusId]”条件的轮询次数 */
-    val relockStreak: Int = 0
+    val relockStreak: Int = 0,
+    /** 单线路：刚从候车站开走但当轮尚无可用定位的车辆 busId，供定位随后到达时追回 */
+    val recentDepartedBusId: String? = null,
+    /** 记录 [recentDepartedBusId] 的墙钟毫秒 */
+    val recentDepartedAtMillis: Long = 0L,
+    /**
+     * 单线路判上车：最近一次定位落在候车站附近的墙钟毫秒（站旁记忆，issue #49）。
+     * 车到站 / 过站那一轮恰好没定位时，凭它照样开始确认；0 = 没在站旁出现过
+     */
+    val nearWaitStopAtMillis: Long = 0L,
+    /**
+     * 单线路判上车：开始「补判」的墙钟毫秒（issue #49）。人在站旁时有车到站 / 过站就记下，之后一段时间里
+     * 待确认放掉了也照样看定位，一旦人沿线过了站就判上车；0 = 没在补判
+     */
+    val boardWatchSinceMillis: Long = 0L,
+    /** 单线路：候车站坐标（WGS-84，线路详情给的），0 = 还不知道；用来区分同名的对向站 */
+    val targetStopLat: Double = 0.0,
+    val targetStopLng: Double = 0.0,
+    /** 单线路「追这辆车」（issue #52）：只追这一辆，不换车；null = 不指定 */
+    val pinnedBusId: String? = null,
+    /** [pinnedBusId] 的车牌 */
+    val pinnedPlate: String = ""
 ) {
+    /** 单线路只追指定的一辆车（issue #52） */
+    val isPinnedBus: Boolean
+        get() = legPhase == LegPhase.SINGLE && pinnedBusId != null
+
     /** 车已到上车站，正在用定位确认用户是否上车 */
     val isAwaitingBoardingConfirmation: Boolean
-        get() = legPhase == LegPhase.WAITING_BOARD && boardingCandidateBusId != null
+        get() = (legPhase == LegPhase.WAITING_BOARD || legPhase == LegPhase.SINGLE) && boardingCandidateBusId != null
 }

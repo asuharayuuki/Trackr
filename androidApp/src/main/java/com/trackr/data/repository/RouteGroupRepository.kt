@@ -20,7 +20,7 @@ import kotlin.coroutines.EmptyCoroutineContext
  * 路线和收藏分组（旧接口 [IRouteGroupRepository]）。
  *
  * 第 14 步起只是一层转调：数据都在 [DefaultFavoritesRepository]（收藏合一），和 TransitRepository 的收藏的车是同一份。
- * 旧页面还用这个接口，第 17 步改完页面后删掉。
+ * 规划、路线详情、编辑收藏的 ViewModel 和 `RouteGroupSaver` 仍经 [IRouteGroupRepository] 读写路线，所以保留。
  */
 class RouteGroupRepository(private val favorites: DefaultFavoritesRepository) : IRouteGroupRepository {
 

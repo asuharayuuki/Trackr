@@ -37,6 +37,7 @@ import com.trackr.feature.bus.resources.bus_nearby_stop_detail
 import com.trackr.feature.bus.resources.bus_nearby_title
 import com.trackr.ui.components.arrival.LineBadge
 import com.trackr.ui.components.arrival.arrivalToneColor
+import com.trackr.ui.components.sort.LineSortToggle
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
@@ -46,7 +47,20 @@ import org.jetbrains.compose.resources.vectorResource
  */
 internal fun LazyListScope.nearbySection(state: BusHomeUiState, onEvent: (BusHomeEvent) -> Unit) {
     item(key = "nearby_header", contentType = "section_header") {
-        SectionHeader(title = stringResource(BusRes.string.bus_nearby_title), modifier = Modifier.testTag(BusHomeTags.NEARBY_HEADER))
+        SectionHeader(
+            title = stringResource(BusRes.string.bus_nearby_title),
+            modifier = Modifier.testTag(BusHomeTags.NEARBY_HEADER),
+            trailing = if (state.nearbyCards.isNotEmpty()) {
+                {
+                    LineSortToggle(
+                        sortByArrival = state.sortNearbyByArrival,
+                        onChange = { onEvent(BusHomeEvent.SetNearbySortByArrival(it)) }
+                    )
+                }
+            } else {
+                null
+            }
+        )
     }
 
     when {

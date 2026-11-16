@@ -1,5 +1,7 @@
 # 追客（BusOnRoad）现状规格说明（As-Is Spec）
 
+> **历史文档（2026-11-16 标注）**：这是 2026-10-31（重构和 v3 改版之前）的现状快照，当时是单模块 `app/`、4 个页签。之后的模块拆分、v3 页面、长辈版、收藏合一、iOS 都不在本文里；现在的结构看根目录 `AGENTS.md`。
+
 > 来源：读 `app/`（重构第 2 步起改名为 `androidApp/`）与 `core/designsystem/` 源码整理，反映代码**当前实际**行为，不是愿景稿。
 > 用途：作为重新设计的输入。`docs/design/ui_design_spec.md` 与 `docs/spec/transit_group_and_refactor_spec.md` 是早期愿景稿，和现状有出入，以本文为准。
 > 整理时间：2026-10-31，基于提交 `260bf9b`。

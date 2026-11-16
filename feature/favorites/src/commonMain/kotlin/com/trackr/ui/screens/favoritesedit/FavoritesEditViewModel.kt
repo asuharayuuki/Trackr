@@ -7,6 +7,7 @@ import com.trackr.core.data.route.FavoriteGroupSelection
 import com.trackr.core.data.route.FavoritesGroupDataFix
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.GroupColor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -54,9 +55,16 @@ class FavoritesEditViewModel(
 
     // ---- 分组 ----
 
-    fun createFavoriteGroup(name: String) {
+    fun createFavoriteGroup(name: String, color: GroupColor? = null) {
         viewModelScope.launch {
-            favorites.createGroup(name)
+            favorites.createGroup(name, color)
+        }
+    }
+
+    /** 改分组颜色（issue #38），null = 不设颜色；首页收藏卡片左边的色条跟着变 */
+    fun setFavoriteGroupColor(groupId: String, color: GroupColor?) {
+        viewModelScope.launch {
+            favorites.setGroupColor(groupId, color)
         }
     }
 
@@ -102,7 +110,10 @@ class FavoritesEditViewModel(
         }
     }
 
-    /** 删掉一条收藏：车走 [FavoritesRepository.removeFavorite]，路线走 [FavoritesRepository.removeRoute] */
+    /**
+     * 删掉一条收藏：车走 [FavoritesRepository.removeFavorite]，路线走 [FavoritesRepository.removeRoute]，
+     * 站走 [FavoritesRepository.removeStation]
+     */
     fun removeItem(key: String) {
         viewModelScope.launch {
             when {
@@ -110,6 +121,8 @@ class FavoritesEditViewModel(
                     favorites.removeFavorite(key.removePrefix(FavoriteItem.STOP_KEY_PREFIX))
                 key.startsWith(FavoriteItem.ROUTE_KEY_PREFIX) ->
                     favorites.removeRoute(key.removePrefix(FavoriteItem.ROUTE_KEY_PREFIX))
+                key.startsWith(FavoriteItem.STATION_KEY_PREFIX) ->
+                    favorites.removeStation(key.removePrefix(FavoriteItem.STATION_KEY_PREFIX))
             }
         }
     }

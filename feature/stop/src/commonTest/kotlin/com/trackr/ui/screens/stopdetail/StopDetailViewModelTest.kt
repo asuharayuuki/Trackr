@@ -9,6 +9,7 @@ import com.trackr.core.model.BoardChoice
 import com.trackr.core.model.BoardOption
 import com.trackr.core.model.BusLineDirection
 import com.trackr.core.model.DataSourceType
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.LegPhase
 import com.trackr.core.model.LiveBus
 import com.trackr.core.model.NearbyStop
@@ -244,6 +245,126 @@ class StopDetailViewModelTest {
         assertFalse(viewModel.uiState.value.rows.first().isFavorite)
     }
 
+    // ================================================================ 收藏整个站（issue #47）
+
+    private fun existingStation(): FavoriteStation = FavoriteStation(
+        id = FavoriteStation.idOf("034", DataSourceType.CHELAILE, "人民广场（广东路）", ""),
+        cityId = "034", cityName = "上海", stopName = "人民广场（广东路）", stopId = "stop_001", physicalStId = "phy_01",
+        platformLabel = "往北",
+        // 固定时间戳：默认值是 defaultNowMillis()，两次调用会差几毫秒，相等性断言就假失败了
+        addedAtMillis = 0L
+    )
+
+    @Test
+    fun stationFavorite_toggle_savesCurrentPlatformAsDefault_thenRemoves() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertFalse(viewModel.uiState.value.isStationFavorite)
+
+        viewModel.onEvent(StopDetailEvent.ToggleStationFavorite)
+        testScheduler.runCurrent()
+
+        val saved = favorites.favoriteStations.value.single()
+        val state = viewModel.uiState.value
+        assertTrue(state.isStationFavorite)
+        assertEquals("stop_001", saved.stopId)
+        assertEquals("phy_01", saved.physicalStId)
+        assertEquals("人民广场（广东路）", saved.stopName)
+        assertEquals(state.platformLabels[0], saved.platformLabel)
+        assertEquals("034", saved.cityId)
+        assertEquals("上海", saved.cityName)
+        assertEquals(31.23, saved.wgsLat)
+        assertEquals("已收藏 人民广场（广东路） · ${state.platformLabels[0]}", viewModel.userMessages.first())
+        // 刚收藏：当前站台就是默认，切站台也不问
+        viewModel.selectStopIndex(1)
+        testScheduler.runCurrent()
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+
+        viewModel.onEvent(StopDetailEvent.ToggleStationFavorite)
+        testScheduler.runCurrent()
+        assertTrue(favorites.favoriteStations.value.isEmpty())
+        assertFalse(viewModel.uiState.value.isStationFavorite)
+    }
+
+    @Test
+    fun stationFavorite_rowStarsStillFavoriteSingleLines() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+
+        viewModel.onEvent(StopDetailEvent.ToggleStationFavorite)
+        testScheduler.runCurrent()
+
+        // 收藏整个站不会把每条线都标成收藏
+        assertTrue(viewModel.uiState.value.rows.none { it.isFavorite })
+        assertTrue(favorites.favorites.value.isEmpty())
+    }
+
+    @Test
+    fun stationFavorite_switchPlatform_asksOnce_acceptUpdatesDefault() = runTest(main.dispatcher) {
+        favorites = FakeFavoritesRepository(initialStations = listOf(existingStation()))
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertTrue(viewModel.uiState.value.isStationFavorite)
+        // 刚打开、还在默认站台：不问
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+
+        viewModel.selectStopIndex(1)
+        testScheduler.runCurrent()
+        val label = viewModel.uiState.value.platformLabels[1]
+        assertEquals(label, viewModel.uiState.value.defaultPlatformPrompt)
+
+        viewModel.onEvent(StopDetailEvent.AcceptDefaultPlatform)
+        testScheduler.runCurrent()
+
+        val updated = favorites.favoriteStations.value.single()
+        assertEquals(existingStation().id, updated.id)
+        assertEquals("stop_002", updated.stopId)
+        assertEquals("phy_02", updated.physicalStId)
+        assertEquals(label, updated.platformLabel)
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+        assertTrue(viewModel.uiState.value.isStationFavorite)
+
+        // 同一次打开不再问
+        viewModel.selectStopIndex(0)
+        testScheduler.runCurrent()
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+    }
+
+    @Test
+    fun stationFavorite_dismissPrompt_keepsDefault_andDoesNotAskAgain() = runTest(main.dispatcher) {
+        favorites = FakeFavoritesRepository(initialStations = listOf(existingStation()))
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+
+        viewModel.selectStopIndex(1)
+        testScheduler.runCurrent()
+        assertNotNull(viewModel.uiState.value.defaultPlatformPrompt)
+
+        viewModel.onEvent(StopDetailEvent.DismissDefaultPlatformPrompt)
+        testScheduler.runCurrent()
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+        assertEquals(existingStation(), favorites.favoriteStations.value.single())
+
+        viewModel.selectStopIndex(0)
+        testScheduler.runCurrent()
+        viewModel.selectStopIndex(1)
+        testScheduler.runCurrent()
+        assertNull(viewModel.uiState.value.defaultPlatformPrompt)
+    }
+
+    @Test
+    fun openedOnAPlatform_selectsThatPlatformFirst() = runTest(main.dispatcher) {
+        val viewModel = StopDetailViewModel(
+            cityId = "034", stopId = "stop_002", initialStopName = "人民广场", physicalStId = "phy_02",
+            settings = settings, favorites = favorites, realtime = fakeRepository, userLocationStore = userLocationStore,
+            trackingRepository = useRealTracking(), trackingController = controller, transitCodeLauncher = launcher,
+            enableAutoPolling = false
+        )
+        testScheduler.runCurrent()
+
+        assertEquals(1, viewModel.uiState.value.selectedStopIndex)
+    }
+
     @Test
     fun testPollingLifecycle_pauseResumeAndExplicitControl() = runTest(main.dispatcher) {
         val vmWithAutoPolling = newViewModel(enableAutoPolling = true)
@@ -283,19 +404,19 @@ class StopDetailViewModelTest {
         testScheduler.runCurrent()
         assertEquals(1, repo.stopDetailPhysicalIds.size)
 
-        // t=4s 换站台：马上按新站台请求一次
-        testScheduler.advanceTimeBy(4_000L)
+        // t=1s 换站台：马上按新站台请求一次
+        testScheduler.advanceTimeBy(1_000L)
         testScheduler.runCurrent()
         viewModel.selectStopIndex(1)
         testScheduler.runCurrent()
         assertEquals(listOf<String?>(null, "phy_02"), repo.stopDetailPhysicalIds)
         assertEquals(1, viewModel.uiState.value.selectedStopIndex)
 
-        // 重新计时：原来 t=10s 的一轮推到 t=14s
-        testScheduler.advanceTimeBy(6_000L)
+        // 重新计时：原来 t=3s 的一轮推到 t=4s
+        testScheduler.advanceTimeBy(2_000L)
         testScheduler.runCurrent()
         assertEquals(2, repo.stopDetailPhysicalIds.size)
-        testScheduler.advanceTimeBy(4_000L)
+        testScheduler.advanceTimeBy(1_000L)
         testScheduler.runCurrent()
         assertEquals(listOf<String?>(null, "phy_02", "phy_02"), repo.stopDetailPhysicalIds)
 
@@ -316,13 +437,13 @@ class StopDetailViewModelTest {
         testScheduler.runCurrent()
         assertTrue(viewModel.isLoadInFlight)
 
-        testScheduler.advanceTimeBy(10_000L)
+        testScheduler.advanceTimeBy(3_000L)
         testScheduler.runCurrent()
         assertEquals(1, repo.stopDetailPhysicalIds.size)
 
         gate.complete(Unit)
         testScheduler.runCurrent()
-        testScheduler.advanceTimeBy(10_000L)
+        testScheduler.advanceTimeBy(3_000L)
         testScheduler.runCurrent()
         assertEquals(2, repo.stopDetailPhysicalIds.size)
 
@@ -412,6 +533,93 @@ class StopDetailViewModelTest {
         // 没有 lineId 的行不能选、不能点开
         assertFalse(rTemp.selectable)
         assertEquals("暂无在途车辆", rTemp.arrival.value)
+    }
+
+    @Test
+    fun testRows_inServiceFirstThenFavoritesFirstWithinEachGroup() {
+        fun status(n: Int, text: String = "", bus: Boolean = false) = NearbyStopLineStatus(
+            line = line("L$n", "${n}路", "终点$n"),
+            targetOrder = 5,
+            targetStopId = "s$n",
+            targetStopName = "大站",
+            statusText = text,
+            approachingBuses = if (bus) listOf(LiveBus(busId = "b$n", plateOrFleetNo = "", order = 2, etaSeconds = 300)) else emptyList()
+        )
+        val stop = NearbyStop(
+            stopId = "stop_x",
+            name = "大站",
+            lines = listOf(
+                status(1, text = "末班已过"),
+                status(2, bus = true),
+                status(3, text = "暂停运营"),
+                status(4, text = "等待发车"),
+                status(5), // 没车没文字：算不在运营
+                status(6, bus = true),
+                status(7, text = "末班已过")
+            )
+        )
+        // 收藏：一条运营中的（6 路）、一条不在运营的（7 路）
+        val favorites = setOf("034_L6_5", "034_L7_5")
+
+        val rows = rowsOf("034", stop, favorites)
+
+        assertEquals(
+            listOf("6路", "2路", "4路", "7路", "1路", "3路", "5路"),
+            rows.map { it.lineName }
+        )
+        assertTrue(rows[0].isFavorite)
+        assertTrue(rows[3].isFavorite)
+    }
+
+    @Test
+    fun testRows_inServiceSortedByArrivalThenFavorite() {
+        fun status(n: Int, eta: Int? = null, text: String = "") = NearbyStopLineStatus(
+            line = line("L$n", "${n}路", "终点$n"),
+            targetOrder = 5,
+            targetStopId = "s$n",
+            targetStopName = "大站",
+            statusText = text,
+            approachingBuses = eta?.let { listOf(LiveBus(busId = "b$n", plateOrFleetNo = "", order = 2, etaSeconds = it)) }.orEmpty()
+        )
+        val stop = NearbyStop(
+            stopId = "stop_x",
+            name = "大站",
+            lines = listOf(
+                status(1, eta = 1920), // 32 分钟
+                status(2, text = "末班已过"),
+                status(3, eta = 360), // 6 分钟
+                status(4, text = "等待发车"), // 运营中但没车
+                status(5, eta = 900), // 15 分钟
+                status(6, eta = 360) // 6 分钟，收藏的：同样先后时排在 3 路前
+            )
+        )
+
+        // 排序切换开着：运营中的按到站先后
+        val rows = rowsOf("034", stop, setOf("034_L6_5"), sortByArrival = true)
+        assertEquals(listOf("6路", "3路", "5路", "1路", "4路", "2路"), rows.map { it.lineName })
+
+        // 默认（关着）：和以前一样，运营中的在前、收藏的在前，其余按数据源顺序
+        val defaultRows = rowsOf("034", stop, setOf("034_L6_5"))
+        assertEquals(listOf("6路", "1路", "3路", "4路", "5路", "2路"), defaultRows.map { it.lineName })
+    }
+
+    @Test
+    fun testSortToggle_savesSettingAndReordersRows() = runTest(main.dispatcher) {
+        // 49 路「即将到站」、71 路 8 分钟：默认按数据源顺序，切到「先到的在前」后顺序不变但开关要记住
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertFalse(viewModel.uiState.value.sortByArrival)
+
+        viewModel.onEvent(StopDetailEvent.SetSortByArrival(true))
+        testScheduler.runCurrent()
+
+        assertTrue(settings.sortLinesByArrival.value)
+        assertTrue(viewModel.uiState.value.sortByArrival)
+
+        // 别处（首页）切回默认，站点页跟着变
+        settings.setSortLinesByArrival(false)
+        testScheduler.runCurrent()
+        assertFalse(viewModel.uiState.value.sortByArrival)
     }
 
     // ================================================================ 选线 / 收藏 / 一起等
@@ -682,7 +890,7 @@ class StopDetailViewModelTest {
         viewModel.onEvent(StopDetailEvent.StopWatching)
         testScheduler.runCurrent()
         assertEquals(3, repo.stopDetailPhysicalIds.size)
-        testScheduler.advanceTimeBy(10_000L)
+        testScheduler.advanceTimeBy(3_000L)
         testScheduler.runCurrent()
         assertEquals(4, repo.stopDetailPhysicalIds.size)
 

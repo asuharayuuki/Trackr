@@ -26,7 +26,14 @@ sealed interface TrackingTarget {
         val alertThresholdStops: Int = 2,
         val source: DataSourceType = DataSourceType.CHELAILE,
         val mygolbsCityCode: String = "",
-        val direction: Int = 0
+        val direction: Int = 0,
+        /**
+         * 只追这一辆车（issue #52「下车提醒」）：线路页车辆卡上点「追这辆车」。空 = 不指定，照旧追离目标站最近的车。
+         * 指定后不换车；这辆车到了目标站就提醒，开过目标站后追踪自动结束。
+         */
+        val pinnedBusId: String = "",
+        /** [pinnedBusId] 的车牌（通知、提醒里写给人看） */
+        val pinnedPlate: String = ""
     ) : TrackingTarget
 
     /**
@@ -112,6 +119,8 @@ data class WatchedLine(
     val missStreak: Int = 0,
     /** 最近一次用于判上车的定位单调时钟时间；同一定位只计一次 */
     val lastFixElapsedMillis: Long = -1L,
+    /** 第一个「像是上了车」的定位的单调时刻（同 `TrackingSessionState.boardingPositiveFixElapsedMillis`）；-1 = 还没有 */
+    val positiveFixElapsedMillis: Long = -1L,
     val approachAlertedBusId: String? = null,
     val arrivedAlertedBusId: String? = null
 )
@@ -174,7 +183,10 @@ data class TrackingSession(
     val state: TrackingSessionState,
     val interrupted: Boolean = false,
     val watchedLines: List<WatchedLine> = emptyList(),
-    val boardChoice: BoardChoice? = null
+    val boardChoice: BoardChoice? = null,
+    /** Snapshot freshness is independent of commands and failed refreshes. */
+    val lastRealtimeAtMillis: Long = 0L,
+    val refreshFailed: Boolean = false
 ) {
     /** 一起等（等车或已上车）；单线路、路线为 null */
     val watchTarget: TrackingTarget.WatchTogether?

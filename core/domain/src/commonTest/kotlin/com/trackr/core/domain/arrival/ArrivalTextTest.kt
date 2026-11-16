@@ -404,4 +404,36 @@ class ArrivalTextTest {
         val millis = 1_793_490_000_000L
         assertEquals(LocalTime(7, 40), ArrivalText.localTimeOf(millis, TimeZone.of("Asia/Shanghai")))
     }
+
+    // ---- arrivalRank（issue #56：站上几条线按到站先后排）----
+
+    @Test
+    fun arrivalRank_arrivingFirst_thenMinutes_thenStopsEstimate_thenNoBus() {
+        assertEquals(0, ArrivalText.arrivalRank(5, listOf(bus(order = 5, isArrived = true))))
+        assertEquals(8 * 60, ArrivalText.arrivalRank(5, listOf(bus(order = 2, etaSeconds = 480))))
+        // 没有分钟：按一站 2 分钟估
+        assertEquals(3 * ArrivalText.STOP_SECONDS_ESTIMATE, ArrivalText.arrivalRank(5, listOf(bus(order = 2))))
+        assertEquals(ArrivalText.RANK_NO_BUS, ArrivalText.arrivalRank(5, emptyList()))
+    }
+
+    @Test
+    fun arrivalRank_usesNearestBusNotFirstInList() {
+        // 列表第一辆是刚出场的头班车（站序 1，30 分钟），最近那辆在站序 4（4 分钟）
+        val buses = listOf(bus(order = 1, etaSeconds = 1800), bus(order = 4, etaSeconds = 240))
+        assertEquals(4 * 60, ArrivalText.arrivalRank(5, buses))
+    }
+
+    @Test
+    fun arrivalRank_noBus_fallsBackToStatusText() {
+        // 掌上公交站点接口只给文字
+        assertEquals(0, ArrivalText.arrivalRank(5, emptyList(), "已到站"))
+        assertEquals(1, ArrivalText.arrivalRank(5, emptyList(), "即将到站"))
+        assertEquals(7 * ArrivalText.STOP_SECONDS_ESTIMATE, ArrivalText.arrivalRank(5, emptyList(), "7站"))
+        assertEquals(6 * 60, ArrivalText.arrivalRank(5, emptyList(), "约6分钟"))
+        assertEquals(ArrivalText.RANK_UNKNOWN, ArrivalText.arrivalRank(5, emptyList(), "预计 07:31 到达"))
+        assertEquals(ArrivalText.RANK_NO_BUS, ArrivalText.arrivalRank(5, emptyList(), "等待发车"))
+        assertEquals(ArrivalText.RANK_NO_BUS, ArrivalText.arrivalRank(5, emptyList(), "末班已过"))
+        // 有车时以车为准
+        assertEquals(4 * 60, ArrivalText.arrivalRank(5, listOf(bus(order = 4, etaSeconds = 240)), "7站"))
+    }
 }

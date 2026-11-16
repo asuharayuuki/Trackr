@@ -12,8 +12,8 @@ import kotlinx.coroutines.ensureActive
  * Android 的高德通道：SDK 优先；只有 SDK 调用失败（未配置 Key / 网络 / 鉴权等）才回落 Web 服务。
  * SDK 成功但结果为空时直接返回空结果，不再用 Web 重复请求。
  *
- * 第 17 步从 `FavoritesGroupViewModel` 的内部类原样搬来；Key 每次现读 [amapKeys]（「更多」页改了马上生效）。
- * iOS 第 38 步另写一个只走 Web 的实现。
+ * 第 17 步从 `FavoritesGroupViewModel` 的内部类原样搬来；Key 每次现读 [amapKeys]（「我的 → 高德 Key」改了马上生效）。
+ * iOS 用 `:core:data` 里只走 Web 的 `WebAmapRouteGateway`。
  */
 class AndroidAmapRouteGateway(
     private val amapSdkService: AmapSdkTransitService?,

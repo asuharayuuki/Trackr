@@ -39,7 +39,16 @@ data class StopDetailUiState(
     val preferredTransitCodeProvider: TransitCodeProvider = TransitCodeProvider.ASK_ALWAYS,
     val isTransitCodeSheetOpen: Boolean = false,
     /** 乘车码圆钮显不显示（「我的」里的开关，和首页、线路页同一个） */
-    val showTransitCodeButton: Boolean = true
+    val showTransitCodeButton: Boolean = true,
+    /** 线路按到站先后排（issue #56）；关时按数据源顺序。和首页附近站同一个开关，切了会记住 */
+    val sortByArrival: Boolean = false,
+    /** 这个站收藏了没有（顶栏 ☆，issue #47） */
+    val isStationFavorite: Boolean = false,
+    /**
+     * 已收藏的站、用户切到了别的站台：问一次「默认方向改成 X？」，X 是当前站台名。
+     * 同一次打开只问一次；null = 不问
+     */
+    val defaultPlatformPrompt: String? = null
 ) {
     /** 当前站台名（选线模式顶栏小字「科技园站 · 往北」用）；只有一个站台时为空串 */
     val selectedPlatformLabel: String
@@ -123,9 +132,21 @@ sealed interface StopDetailEvent {
     data class OpenLine(val row: StopLineRowUi) : StopDetailEvent
 
     data object PullRefresh : StopDetailEvent
+
+    /** 线路列表上方的排序切换：默认顺序 ↔ 按到站先后（issue #56） */
+    data class SetSortByArrival(val enabled: Boolean) : StopDetailEvent
     data object Retry : StopDetailEvent
     data class SelectPlatform(val index: Int) : StopDetailEvent
     data class ToggleFavorite(val rowKey: String) : StopDetailEvent
+
+    /** 顶栏 ☆：收藏 / 取消收藏整个站，当前站台记成默认（issue #47） */
+    data object ToggleStationFavorite : StopDetailEvent
+
+    /** 「默认方向改成 X？」点了「改」 */
+    data object AcceptDefaultPlatform : StopDetailEvent
+
+    /** 「默认方向改成 X？」没点（提示消失或划掉），这次打开不再问 */
+    data object DismissDefaultPlatformPrompt : StopDetailEvent
 
     /** 进选线模式（「选几条一起等」） */
     data object StartSelecting : StopDetailEvent

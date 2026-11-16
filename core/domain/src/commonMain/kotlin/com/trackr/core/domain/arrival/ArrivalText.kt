@@ -126,6 +126,52 @@ object ArrivalText {
     fun nearestBus(targetOrder: Int, buses: List<LiveBus>): LiveBus? =
         buses.filter { it.order <= targetOrder }.maxByOrNull { it.order + it.segmentProgress }
 
+    /** 只有站数时按一站约 2 分钟估，用来和有分钟数的线排先后 */
+    const val STOP_SECONDS_ESTIMATE = 120
+
+    /** [arrivalRank] 里有车但既没分钟也没站数 */
+    const val RANK_UNKNOWN = Int.MAX_VALUE - 1
+
+    /** [arrivalRank] 里没车 */
+    const val RANK_NO_BUS = Int.MAX_VALUE
+
+    /**
+     * 站上几条线按到站先后排用的值（越小越先到）：到站了是 0，其次按分钟（换成秒），没有分钟按站数估，
+     * 有车但都没有是 [RANK_UNKNOWN]。选车和到站文字一样用 [nearestBus]（issue #56）。
+     *
+     * 没车时看数据源的状态文字 [statusText]（掌上公交的站点接口只给文字，见 [statusTextRank]）；
+     * 文字也看不出先后（「等待发车」「末班已过」）是 [RANK_NO_BUS]。
+     */
+    fun arrivalRank(targetOrder: Int, buses: List<LiveBus>, statusText: String = ""): Int {
+        val bus = nearestBus(targetOrder, buses) ?: buses.firstOrNull()
+            ?: return statusTextRank(statusText) ?: RANK_NO_BUS
+        return when (val state = stateForBus(targetOrder, bus)) {
+            is ArrivalState.Arriving -> 0
+            is ArrivalState.OnTheWay -> state.minutes?.let { it * 60 }
+                ?: state.stopsAway?.let { it * STOP_SECONDS_ESTIMATE }
+                ?: RANK_UNKNOWN
+            else -> RANK_UNKNOWN
+        }
+    }
+
+    private val STOPS_TEXT = Regex("""^(\d+)\s*站""")
+    private val MINUTES_TEXT = Regex("""(\d+)\s*分钟""")
+
+    /**
+     * 数据源状态文字换成 [arrivalRank] 的值：「已到站」0，「即将到站」1，「8分钟」按分钟，「7站」按站数估；
+     * 「预计 07:31 到达」看得出有车但这里没有「现在」，记 [RANK_UNKNOWN]；其余看不出先后，返回 null。
+     */
+    fun statusTextRank(statusText: String): Int? {
+        val text = statusText.trim()
+        if (text.isEmpty()) return null
+        if (text.startsWith("已到站") || text == "到站") return 0
+        if (text.startsWith("即将到站") || text.startsWith("即将进站")) return 1
+        MINUTES_TEXT.find(text)?.let { return it.groupValues[1].toInt() * 60 }
+        STOPS_TEXT.find(text)?.let { return it.groupValues[1].toInt() * STOP_SECONDS_ESTIMATE }
+        if (text.startsWith("预计") && text.endsWith("到达")) return RANK_UNKNOWN
+        return null
+    }
+
     /**
      * 由一辆最近的车判状态（首页、站点页的行只有这一辆）。
      * 拿不到站序（[targetOrder] 或车的 order <= 0）时只看到站标志和 ETA。

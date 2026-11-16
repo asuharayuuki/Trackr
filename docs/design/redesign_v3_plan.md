@@ -1,5 +1,5 @@
 # 设计稿 v3 代码改造步骤
-> **已被 `docs/design/refactor_plan_mad.md`（r2）取代**：本文只管界面改版，执行以 r2 计划为准。
+> **已被 `docs/design/refactor_plan_mad.md` 取代（历史文档，不再按它执行）**：本文只管界面改版；现状以根目录 `AGENTS.md` 和代码为准。
 
 > 依据：`docs/design/redesign_v3.html`、`docs/spec/app_spec_as_is.md`（§7 问题、§8 决策）。
 > 规则：**一步一个提交**，每步结束 `./gradlew test` 通过、能装机运行。步骤按依赖排序，前面的不依赖后面的。

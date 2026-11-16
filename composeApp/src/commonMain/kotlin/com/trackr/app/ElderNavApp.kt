@@ -40,7 +40,7 @@ internal const val ELDER_UNSUPPORTED_NOTICE = "长辈版不支持此功能，可
 
 /**
  * 长辈版的导航（§8.4，第 31 步）：一条栈、没有底栏和地图规划，根页是首页；「我的」从首页右上角「设置」进。
- * 页面暂时复用标准版的（长辈版页面第 32 步起换），所以 Key、ViewModel 和标准版一样。
+ * 首页、搜索、线路、站点是各 feature 的长辈版页面（见 [elderEntries]），路线详情和「我的」用标准版的；Key 和标准版一样。
  *
  * Deep link 和标准版用同一个解析结果，由 [ElderNavigator.applyDeepLink] 落成 `[首页, …]`。
  */

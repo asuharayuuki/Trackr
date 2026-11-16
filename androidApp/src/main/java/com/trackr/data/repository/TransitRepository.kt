@@ -15,6 +15,7 @@ import com.trackr.core.domain.platform.ProcessMonotonicClock
 import com.trackr.core.model.AlertThreshold
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.LineTimetable
@@ -102,6 +103,11 @@ class TransitRepository(
 
     private val _autoStopAfterBoarding = MutableStateFlow(initial.autoStopAfterBoarding ?: true)
     override val autoStopAfterBoarding: StateFlow<Boolean> = _autoStopAfterBoarding.asStateFlow()
+
+    private val _voiceAlerts = MutableStateFlow(initial.voiceAlerts ?: false)
+    override val voiceAlerts: StateFlow<Boolean> = _voiceAlerts.asStateFlow()
+    private val _sortLinesByArrival = MutableStateFlow(initial.sortLinesByArrival ?: false)
+    override val sortLinesByArrival: StateFlow<Boolean> = _sortLinesByArrival.asStateFlow()
 
     private val _nearbyStopsCount = MutableStateFlow((initial.nearbyStopsCount ?: 4).coerceIn(1, 16))
     override val nearbyStopsCount: StateFlow<Int> = _nearbyStopsCount.asStateFlow()
@@ -191,6 +197,16 @@ class TransitRepository(
     override fun setAutoStopAfterBoarding(enabled: Boolean) {
         _autoStopAfterBoarding.value = enabled
         writer.enqueue { store.saveAutoStopAfterBoarding(enabled) }
+    }
+
+    override fun setVoiceAlerts(enabled: Boolean) {
+        _voiceAlerts.value = enabled
+        writer.enqueue { store.saveVoiceAlerts(enabled) }
+    }
+
+    override fun setSortLinesByArrival(enabled: Boolean) {
+        _sortLinesByArrival.value = enabled
+        writer.enqueue { store.saveSortLinesByArrival(enabled) }
     }
 
     override fun setAlertThresholdStops(stops: Int) {
@@ -315,6 +331,12 @@ class TransitRepository(
 
     override suspend fun refreshFavoritesRealtime(): Result<Map<String, NearbyStop>> =
         realtime.refreshFavoritesRealtime()
+
+    override suspend fun unreachableCities(cities: List<TransitCity>): Set<String> =
+        realtime.unreachableCities(cities)
+
+    override suspend fun listAllLines(city: TransitCity): Result<List<BusLineSummary>> =
+        realtime.listAllLines(city)
 
     private suspend fun persistSearchHistory(list: List<String>) {
         writer.enqueue { store.saveSearchHistory(list) }.join()

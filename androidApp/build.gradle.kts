@@ -37,9 +37,8 @@ android {
 
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
-        resValue("string", "shortcut_target_package", applicationId!!)
-        versionCode = 12
-        versionName = "0.1.8"
+        versionCode = 16
+        versionName = "0.1.12"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         // 第 9 步存储开关 USE_NEW_STORE 的默认值（true = Room + DataStore）；运行时可用 files/store_switch 覆盖，见 StoreSwitch
@@ -81,7 +80,6 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            resValue("string", "shortcut_target_package", "${defaultConfig.applicationId}$applicationIdSuffix")
             enableUnitTestCoverage = true
             buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyDebug\"")
             manifestPlaceholders["AMAP_ANDROID_KEY"] = amapAndroidKeyDebug
@@ -115,7 +113,6 @@ android {
 
     buildFeatures {
         buildConfig = true
-        resValues = true
     }
 
     packaging {
@@ -137,7 +134,7 @@ dependencies {
     implementation(project(":core:navigation"))
     implementation(project(":core:network"))
     implementation(project(":core:data"))
-    // 第 17 步：页面搬进 :composeApp / :feature:*；:core:ui 给出页面要的 Android 能力接口（LiveUpdateSettings）
+    // 页面在 :composeApp / :feature:*；:core:ui 给出要在这里实现的平台接口（LiveUpdateAccess、LiveUpdateSettings 等）
     implementation(project(":composeApp"))
     implementation(project(":core:ui"))
     implementation(platform(libs.androidx.compose.bom))
@@ -153,6 +150,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.service)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
     implementation(libs.androidx.navigation3.runtime)

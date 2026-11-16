@@ -17,5 +17,7 @@
         <domain includeSubdomains="true">amap.com</domain>
         <domain includeSubdomains="true">autonavi.com</domain>
         <domain includeSubdomains="false">gnss-eph.oss-cn-hangzhou.aliyuncs.com</domain>
+        <!-- 掌上出行（朗斯）城市清单是明文 HTTP；代码里还走了一层原始 socket 兜底 -->
+        <domain includeSubdomains="true">222.76.217.238</domain>
     </domain-config>
 </network-security-config>

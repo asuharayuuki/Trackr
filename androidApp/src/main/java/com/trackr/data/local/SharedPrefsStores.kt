@@ -13,6 +13,7 @@ import com.trackr.core.data.local.TransitLocalSnapshot
 import com.trackr.core.data.local.TransitLocalStore
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItemRecord
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.TransitGroup
@@ -59,6 +60,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         transitCodeProvider = prefs.getString(KEY_TRANSIT_CODE_PROVIDER, null),
         showTransitCodeButton = if (prefs.contains(KEY_SHOW_TRANSIT_CODE_BUTTON)) prefs.getBoolean(KEY_SHOW_TRANSIT_CODE_BUTTON, true) else null,
         autoStopAfterBoarding = if (prefs.contains(KEY_AUTO_STOP_AFTER_BOARDING)) prefs.getBoolean(KEY_AUTO_STOP_AFTER_BOARDING, true) else null,
+        voiceAlerts = if (prefs.contains(KEY_VOICE_ALERTS)) prefs.getBoolean(KEY_VOICE_ALERTS, false) else null,
+        sortLinesByArrival = if (prefs.contains(KEY_SORT_LINES_BY_ARRIVAL)) prefs.getBoolean(KEY_SORT_LINES_BY_ARRIVAL, false) else null,
         nearbyStopsCount = if (prefs.contains(KEY_NEARBY_STOPS_COUNT)) prefs.getInt(KEY_NEARBY_STOPS_COUNT, 4) else null,
         liveNotificationEnabled = if (prefs.contains(KEY_LIVE_NOTIFICATION)) prefs.getBoolean(KEY_LIVE_NOTIFICATION, true) else null,
         showOnLockScreen = if (prefs.contains(KEY_SHOW_ON_LOCK_SCREEN)) prefs.getBoolean(KEY_SHOW_ON_LOCK_SCREEN, true) else null,
@@ -93,6 +96,14 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
 
     override suspend fun saveAutoStopAfterBoarding(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTO_STOP_AFTER_BOARDING, enabled).apply()
+    }
+
+    override suspend fun saveVoiceAlerts(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_ALERTS, enabled).apply()
+    }
+
+    override suspend fun saveSortLinesByArrival(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SORT_LINES_BY_ARRIVAL, enabled).apply()
     }
 
     override suspend fun saveLiveNotificationEnabled(enabled: Boolean) {
@@ -149,6 +160,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         private const val KEY_TRANSIT_CODE_PROVIDER = "preferred_transit_code_provider"
         private const val KEY_SHOW_TRANSIT_CODE_BUTTON = "show_transit_code_button"
         private const val KEY_AUTO_STOP_AFTER_BOARDING = "auto_stop_after_boarding"
+        private const val KEY_VOICE_ALERTS = "voice_alerts"
+        private const val KEY_SORT_LINES_BY_ARRIVAL = "sort_lines_by_arrival"
         private const val KEY_NEARBY_STOPS_COUNT = "nearby_stops_count"
         private const val KEY_LIVE_NOTIFICATION = "is_live_notification_enabled"
         private const val KEY_SHOW_ON_LOCK_SCREEN = "show_on_lock_screen"
@@ -236,6 +249,17 @@ class SharedPrefsRouteGroupStore(private val prefs: SharedPreferences) {
         }
     }
 
+    /** 收藏的站（issue #47）；没存过或坏了是空列表 */
+    fun loadFavoriteStations(): List<FavoriteStation> =
+        decodeOrEmpty(prefs.getString(KEY_FAVORITE_STATIONS, null))
+
+    fun saveFavoriteStations(list: List<FavoriteStation>) {
+        try {
+            prefs.edit().putString(KEY_FAVORITE_STATIONS, legacyJson.encodeToString(list)).apply()
+        } catch (_: Exception) {
+        }
+    }
+
     fun saveFavoriteItems(list: List<FavoriteItemRecord>) {
         try {
             prefs.edit().putString(KEY_FAVORITE_ITEMS, legacyJson.encodeToString(list)).apply()
@@ -269,6 +293,9 @@ class SharedPrefsRouteGroupStore(private val prefs: SharedPreferences) {
 
         /** 合一索引；和 :core:data 里 LegacyPrefs.KEY_FAVORITE_ITEMS 必须一致（新存储导入时读它） */
         const val KEY_FAVORITE_ITEMS = "favorite_items_json"
+
+        /** 收藏的站（issue #47）；和 :core:data 里 LegacyPrefs.KEY_FAVORITE_STATIONS 必须一致 */
+        const val KEY_FAVORITE_STATIONS = "favorite_stations_json"
     }
 }
 
@@ -302,7 +329,8 @@ class SharedPrefsFavoritesStore(
             items = items,
             // JSON 读不出来（null）说明文件坏了，按「没建过」处理，和旧版一样回落到两个默认分组；
             // 存成 "[]" 读到的是空列表，那才是用户自己删光的
-            groupsInitialized = groups != null && routeGroups.hasFavoriteGroupsInitialized()
+            groupsInitialized = groups != null && routeGroups.hasFavoriteGroupsInitialized(),
+            stations = routeGroups.loadFavoriteStations()
         )
     }
 
@@ -313,6 +341,7 @@ class SharedPrefsFavoritesStore(
         // 旧版删收藏分组时就是先写收藏分组、再写路线
         change.groups?.let { routeGroups.saveFavoriteGroups(it) }
         change.routes?.let { routeGroups.saveGroups(it) }
+        change.stations?.let { routeGroups.saveFavoriteStations(it) }
         if (change.markGroupsInitialized) routeGroups.markFavoriteGroupsInitialized()
         if (change.items != null || change.itemUpdates.isNotEmpty()) {
             val full = change.items ?: mergeByKey(cachedItems.orEmpty(), change.itemUpdates)

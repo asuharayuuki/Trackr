@@ -5,9 +5,11 @@ import com.trackr.core.data.repository.DefaultTrackingRepository
 import com.trackr.core.data.repository.InMemoryTrackingSessionStore
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.BusLineDirection
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.CandidateLine
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.LiveBus
 import com.trackr.core.model.NearbyStopLineStatus
 import com.trackr.core.model.TransitCodeProvider
@@ -242,6 +244,11 @@ class BusHomeViewModelTest {
         testScheduler.runCurrent()
         assertEquals(EngineMode.MYGOLBS, viewModel.uiState.value.engineMode)
 
+        // 三个数据源循环：掌上公交 -> 掌上出行 -> 车来了
+        viewModel.toggleEngineMode()
+        testScheduler.runCurrent()
+        assertEquals(EngineMode.LENZ, viewModel.uiState.value.engineMode)
+
         viewModel.toggleEngineMode()
         testScheduler.runCurrent()
         assertEquals(EngineMode.CHELAILE, viewModel.uiState.value.engineMode)
@@ -268,6 +275,45 @@ class BusHomeViewModelTest {
 
         // 验证无需重启，周边站点即刻被重新拉取并更新为站点B
         assertEquals("站点B", viewModel.uiState.value.nearbyStops.firstOrNull()?.name)
+    }
+
+    /**
+     * 回归：同为掌上出行的两个城市互切（数据源不变）时，「本城全部线路」必须跟着切。
+     * 此前 selectCity 只改了 currentCity，selectedCity 收集器因城市已先行更新而跳过、
+     * 引擎收集器又因数据源没变不触发，导致线路列表一直停留在上一个城市（范县）。
+     */
+    @Test
+    fun testSelectLenzCity_reloadsCityLines_whenEngineUnchanged() = runTest(main.dispatcher) {
+        val fanxian = TransitCity(cityId = "", cityName = "范县", lenzServerIp = "ip-fan", lenzServerPort = 8619, province = "河南")
+        val qingfeng = TransitCity(cityId = "", cityName = "清丰", lenzServerIp = "ip-qing", lenzServerPort = 8625, province = "河南")
+        fakeRepository = HomeFakes(fanxian)
+        fakeRepository.settings.setEngineMode(EngineMode.LENZ)
+        fakeRepository.realtime.listAllLinesResultProvider = { city ->
+            val name = if (city.cityName == "范县") "1路 范县至王楼镇" else "1路 清丰至县城"
+            Result.success(
+                listOf(
+                    BusLineSummary(
+                        name = name,
+                        lineNo = name,
+                        directions = listOf(
+                            BusLineDirection(lineId = "lz:${city.cityName}:1", name = name, startStop = city.cityName, endStop = "终点", source = DataSourceType.LENZ)
+                        ),
+                        source = DataSourceType.LENZ
+                    )
+                )
+            )
+        }
+
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertEquals("1路 范县至王楼镇", viewModel.uiState.value.cityLines.single().lineName)
+
+        viewModel.selectCity(qingfeng)
+        testScheduler.runCurrent()
+
+        assertEquals("清丰", viewModel.uiState.value.currentCity.cityName)
+        assertEquals("1路 清丰至县城", viewModel.uiState.value.cityLines.single().lineName)
+        assertTrue(fakeRepository.realtime.listAllLinesCalls.any { it.cityName == "清丰" })
     }
 
     @Test
@@ -517,7 +563,7 @@ class BusHomeViewModelTest {
         testScheduler.runCurrent()
         val callsBefore = fakeRepository.nearbyStopsCalls.size
 
-        // 离开首页超过一个轮询周期后回来：立即补刷一次，而不是再等 15 秒
+        // 离开首页超过一个轮询周期后回来：立即补刷一次，而不是再等一个周期
         clock.advanceBy((BusHomeViewModel.POLLING_INTERVAL_MS + 1).milliseconds)
         viewModel.setPollingActive(true)
         testScheduler.runCurrent()
@@ -534,7 +580,7 @@ class BusHomeViewModelTest {
         testScheduler.runCurrent()
         val callsBefore = fakeRepository.nearbyStopsCalls.size
 
-        // 边界：距上次刷新正好一个轮询周期（15000 ms）也算到期，补刷一次
+        // 边界：距上次刷新正好一个轮询周期也算到期，补刷一次
         clock.advanceBy(BusHomeViewModel.POLLING_INTERVAL_MS.milliseconds)
         viewModel.setPollingActive(true)
         testScheduler.runCurrent()
@@ -751,6 +797,26 @@ class BusHomeViewModelTest {
         testScheduler.runCurrent()
         assertNull(viewModel.uiState.value.selectedGroupId)
         assertEquals(3, viewModel.uiState.value.favoriteRows.size)
+    }
+
+    @Test
+    fun testFavorites_groupColorChange_updatesRows() = runTest(main.dispatcher) {
+        val repo = FakeFavoritesRepository(
+            initialFavorites = listOf(fav("f1", "325", "科技园站"), fav("f2", "M194", "深大北门")),
+            initialGroups = listOf(FavoriteGroup(id = "g_work", name = "上班"))
+        )
+        repo.setGroup(FavoriteItem.stopKey("f2"), "g_work")
+        fakeRepository = HomeFakes(shanghai, repo)
+
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertEquals(listOf<GroupColor?>(null, null), viewModel.uiState.value.favoriteRows.map { it.groupColor })
+
+        // 编辑页给分组设了颜色：首页卡片跟着有色条
+        repo.setGroupColor("g_work", GroupColor.Preset.GREEN)
+        testScheduler.runCurrent()
+        assertEquals(listOf(null, GroupColor.Preset.GREEN), viewModel.uiState.value.favoriteRows.map { it.groupColor })
+        assertEquals(GroupColor.Preset.GREEN, viewModel.uiState.value.favoriteGroups.single().color)
     }
 
     @Test

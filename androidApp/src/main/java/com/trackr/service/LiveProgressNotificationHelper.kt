@@ -32,7 +32,7 @@ import com.trackr.service.vendor.XiaomiFocusAdapter
 /**
  * 负责构建常驻实时公交进度通知，深度适配 Android 16 / Core-KTX 1.19.0 的 NotificationCompat.ProgressStyle 实时活动
  *
- * 第 4 步从 object 改成类，由 Koin 提供单例；旧的 [LiveProgressNotificationHelper] 暂时转发到这里（第 12 步删）。
+ * 由 Koin 提供单例（原来的 object `LiveProgressNotificationHelper` 已删，只有文件名还沿用旧名）。
  *
  * @param liveNotificationSetting 读「实时通知」设置开关（Koin 里接仓库）
  * @param nextLegLineNameOf 第 N 程之后那一程的线路名（Koin 里接 `TrackingRepository` 的会话）
@@ -187,7 +187,9 @@ class LiveProgressNotifier(
         sessionId: String = "",
         allowPromotion: Boolean = true,
         /** 一起等里这条通知属于哪条线（按钮广播带出去，点「结束」只去掉这条线） */
-        watchLineId: String = ""
+        watchLineId: String = "",
+        /** 自动判上车暂停的说明（issue #49），有就顶替副标题；null = 正常 */
+        boardingNotice: String? = null
     ): Notification {
         ensureNotificationChannel(context)
 
@@ -233,7 +235,7 @@ class LiveProgressNotifier(
             .setColor(COLOR_ACCENT)
             .setContentTitle(texts.title)
             .setContentText(texts.content)
-            .setSubText(texts.subText)
+            .setSubText(boardingNotice ?: texts.subText)
             .setStyle(progressStyle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -467,6 +469,8 @@ class LiveProgressNotifier(
         val contentText = when {
             isArrived && isMultiLeg && currentLegNum < state.totalLegs ->
                 "到达换乘站 ${state.targetStopName}，自动切换下一程"
+            isArrived && state.isPinnedBus ->
+                "${state.targetStopName}：到站了，请下车"
             isArrived ->
                 "${state.targetStopName}：到站了，快去上车"
             state.stopsRemaining == 0 && isMultiLeg ->
@@ -481,6 +485,8 @@ class LiveProgressNotifier(
 
         val subText = if (isMultiLeg) {
             "换乘追踪 · 第$currentLegNum/${state.totalLegs}程"
+        } else if (state.isPinnedBus) {
+            "只追 ${state.pinnedPlate.ifBlank { "这辆车" }} · 第${state.targetOrder}站"
         } else {
             "候车追踪 · 第${state.targetOrder}站"
         }
@@ -626,6 +632,14 @@ class LiveProgressNotifier(
     ): PendingIntent {
         val intent = Intent(context, TrackingActionReceiver::class.java).apply {
             this.action = action
+            // PendingIntent 的身份不包含 extras；截断的 hash 请求码可能碰撞，导致按钮
+            // 被另一份会话覆盖。完整标识放进参与 filterEquals 的 data，刷新同一条仍可复用。
+            data = Uri.Builder()
+                .scheme("trackr")
+                .authority("tracking-action")
+                .appendPath(sessionId)
+                .appendPath(watchLineId)
+                .build()
             if (sessionId.isNotBlank()) putExtra(TrackingActionReceiver.EXTRA_SESSION_ID, sessionId)
             if (watchLineId.isNotBlank()) putExtra(TrackingActionReceiver.EXTRA_WATCH_LINE_ID, watchLineId)
         }
@@ -638,8 +652,8 @@ class LiveProgressNotifier(
     }
 
     /**
-     * 同一份会话的 PendingIntent 请求码。同时追多项时每项一条通知，请求码相同的话
-     * （PendingIntent 的身份不含 extras）后一条会把前一条的 sessionId 覆盖掉，按钮就都指向同一项了。
+     * 同一份会话的 PendingIntent 请求码。它只是稳定的分桶，不能保证唯一；
+     * 广播按钮的会话与线路身份由 Intent.data 保证，不能只依赖这个截断哈希。
      */
     private fun requestCodeOf(base: Int, sessionId: String, watchLineId: String = ""): Int {
         val key = if (watchLineId.isEmpty()) sessionId else "$sessionId#$watchLineId"
@@ -697,7 +711,8 @@ class LiveProgressNotifier(
         allowPromotion: Boolean = true,
         nextLineName: String? = null,
         notificationId: Int = NOTIFICATION_ID_LIVE_PROGRESS,
-        watchLineId: String = ""
+        watchLineId: String = "",
+        boardingNotice: String? = null
     ) {
         if (!state.isActive) {
             cancelNotification(context, notificationId)
@@ -710,7 +725,8 @@ class LiveProgressNotifier(
             watch = watch,
             sessionId = sessionId,
             allowPromotion = allowPromotion,
-            watchLineId = watchLineId
+            watchLineId = watchLineId,
+            boardingNotice = boardingNotice
         )
         try {
             NotificationManagerCompat.from(context).notify(notificationId, notification)

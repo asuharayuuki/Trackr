@@ -179,12 +179,15 @@ internal object BusHomeMapper {
 
     fun favoriteRows(state: BusHomeUiState): List<FavoriteRowUi> {
         val groupId = state.selectedGroupId
+        val colorOf = state.favoriteGroups.mapNotNull { group -> group.color?.let { group.id to it } }.toMap()
         return state.favoriteItems
             .filter { groupId == null || it.groupId == groupId }
             .map { item ->
+                val color = item.groupId?.let(colorOf::get)
                 when (item) {
-                    is FavoriteItem.Stop -> stopRow(item, state.favoritesRealtime[item.stop.id])
-                    is FavoriteItem.Route -> routeRow(item)
+                    is FavoriteItem.Stop -> stopRow(item, state.favoritesRealtime[item.stop.id]).copy(groupColor = color)
+                    is FavoriteItem.Route -> routeRow(item).copy(groupColor = color)
+                    is FavoriteItem.Station -> stationRow(item, state.favoritesRealtime[item.key]).copy(groupColor = color)
                 }
             }
     }
@@ -216,6 +219,78 @@ internal object BusHomeMapper {
             spoken = display.spoken
         )
     }
+
+    /** 收藏的站首页列几条线（按到站先后） */
+    const val STATION_PREVIEW_LINES = 3
+
+    /**
+     * 收藏的站（issue #47）。[platform] 是 `refreshFavoritesRealtime` 找回的默认站台：null = 还没查到（正在查车），
+     * 没有线路 = 查不到这个站（可能临时改道）。
+     */
+    fun stationRow(item: FavoriteItem.Station, platform: NearbyStop?): FavoriteRowUi.Station {
+        val fav = item.station
+        val title = joinDot(fav.stopName, fav.platformLabel)
+        val open = StopTarget(
+            cityId = fav.cityId,
+            stopId = fav.stopId,
+            stopName = fav.stopName,
+            physicalStId = fav.physicalStId,
+            namesakeStId = fav.namesakeStId,
+            lat = fav.wgsLat,
+            lng = fav.wgsLng
+        )
+        if (platform == null || platform.lines.isEmpty()) {
+            return FavoriteRowUi.Station(
+                key = item.key,
+                title = title,
+                lines = emptyList(),
+                lineCount = 0,
+                status = if (platform == null) StationStatus.Loading else StationStatus.NotFound,
+                arrival = if (platform == null) ArrivalUi.of(ArrivalText.format(ArrivalState.Loading)) else null,
+                open = open
+            )
+        }
+        // 站点接口给的线：按到站先后排，先到的在前；同样先后时保持接口顺序
+        val ranked = platform.lines
+            .filter { it.line.lineId.isNotBlank() || it.line.displayLineName.isNotBlank() }
+            .map { status ->
+                val lineName = status.line.displayLineName
+                val display = arrivalDisplayFor(
+                    status,
+                    nextDepartureIsFromStart = false,
+                    lineName = lineName,
+                    stopName = fav.stopName,
+                    towards = status.line.endStop
+                )
+                Triple(status, display, arrivalRank(status))
+            }
+            .withIndex()
+            .sortedWith(compareBy({ it.value.third }, { it.index }))
+            .map { it.value }
+        val lines = ranked.take(STATION_PREVIEW_LINES).map { (status, display, _) ->
+            StationLineUi(
+                lineName = status.line.displayLineName,
+                direction = terminalText(status.line.endStop, status.line.startStop),
+                short = display.short,
+                arrival = ArrivalUi.of(display)
+            )
+        }
+        val first = ranked.firstOrNull()
+        return FavoriteRowUi.Station(
+            key = item.key,
+            title = title,
+            lines = lines,
+            lineCount = ranked.size,
+            status = StationStatus.Ready,
+            arrival = first?.second?.let { ArrivalUi.of(it).copy(small = "${ranked.size} 条线") },
+            open = open,
+            spoken = first?.second?.spoken.orEmpty()
+        )
+    }
+
+    /** 站里一条线的先后，见 [ArrivalText.arrivalRank]；和 [arrivalDisplayFor] 选的是同一辆车 */
+    private fun arrivalRank(status: NearbyStopLineStatus): Int =
+        ArrivalText.arrivalRank(status.targetOrder, status.approachingBuses, status.statusText)
 
     private fun routeRow(item: FavoriteItem.Route): FavoriteRowUi.Route {
         val route = item.route
@@ -252,6 +327,8 @@ internal object BusHomeMapper {
     fun nearbyCards(state: BusHomeUiState): List<NearbyStopUi> {
         val cityId = state.currentCity.cityId
         return state.nearbyStops.map { stop ->
+            // 排序切换开着时先到的线在前（issue #56），同样先后时保持接口顺序；关着按接口顺序
+            val lines = if (state.sortNearbyByArrival) stop.lines.sortedBy { arrivalRank(it) } else stop.lines
             NearbyStopUi(
                 key = nearbyKey(stop),
                 name = stop.name,
@@ -260,7 +337,7 @@ internal object BusHomeMapper {
                     if (stop.lines.isNotEmpty()) "${stop.lines.size} 条线" else "",
                     stop.subwayLineNames.firstOrNull().orEmpty()
                 ),
-                lines = stop.lines.mapIndexed { index, status ->
+                lines = lines.mapIndexed { index, status ->
                     NearbyLineUi(
                         key = "${status.line.lineId}_${status.targetOrder}_$index",
                         lineName = status.line.displayLineName,

@@ -25,7 +25,7 @@ import com.trackr.service.vendor.XiaomiFocusAdapter
 /**
  * 负责管理高优先级到站/进站预警通知渠道及震动声音提醒
  *
- * 第 4 步从 object 改成类，由 Koin 提供单例；旧的 [ArrivalAlertManager] 暂时转发到这里（第 12 步删）。
+ * 由 Koin 提供单例（原来的 object `ArrivalAlertManager` 已删，只有文件名还沿用旧名）。
  *
  * @param liveProgressNotifier 读「实时通知」开关，与常驻通知共用同一个兜底值
  * @param showOnLockScreenSetting 读「锁屏显示」开关（D3），和常驻通知同一份设置；读不到按开
@@ -168,7 +168,12 @@ class ArrivalAlertNotifier(
                 ""
             }
             val title = "【即将到站】${state.lineName}"
-            val content = "距 ${state.targetStopName} 还有 ${state.stopsRemaining} 站$etaText，请准备上车/下车！"
+            // 只追一辆车（issue #52）：多半是坐在车上等下车站，写清是哪辆
+            val content = if (state.isPinnedBus) {
+                "${state.pinnedPlate.ifBlank { "所追车辆" }} 距 ${state.targetStopName} 还有 ${state.stopsRemaining} 站$etaText，请准备下车！"
+            } else {
+                "距 ${state.targetStopName} 还有 ${state.stopsRemaining} 站$etaText，请准备上车/下车！"
+            }
 
             val notification = alertNotification(
                 context = context,
@@ -210,7 +215,11 @@ class ArrivalAlertNotifier(
         var posted = false
         if (forceStandalone || shouldPostStandaloneNotification(context, state)) {
             val title = "【车辆已到站】${state.lineName}"
-            val content = "${state.lineName} 已到达 ${state.targetStopName}！请注意上车/下车。"
+            val content = if (state.isPinnedBus) {
+                "${state.pinnedPlate.ifBlank { state.lineName }} 已到达 ${state.targetStopName}！请下车，本次追踪结束。"
+            } else {
+                "${state.lineName} 已到达 ${state.targetStopName}！请注意上车/下车。"
+            }
 
             val notification = alertNotification(
                 context = context,

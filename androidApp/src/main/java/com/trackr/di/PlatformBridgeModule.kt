@@ -16,9 +16,11 @@ import com.trackr.core.data.repository.UserLocationStore
 import com.trackr.core.domain.platform.Announcer
 import com.trackr.core.domain.platform.AppSigningInfo
 import com.trackr.core.domain.platform.AppVersionInfo
+import com.trackr.core.domain.platform.BoardingTraceLog
 import com.trackr.core.domain.platform.SystemSettingsLauncher
 import com.trackr.core.domain.platform.TransitCodeLauncher
 import com.trackr.core.model.TransitCodeProvider
+import com.trackr.data.diagnostics.AndroidBoardingTraceLog
 import com.trackr.data.repository.ITransitRepository
 import com.trackr.platform.speech.AndroidTtsAnnouncer
 import com.trackr.service.ArrivalAlertNotifier
@@ -58,6 +60,8 @@ val platformBridgeModule: Module = module {
     // 「我的」页的通知可靠性体检：通知权限 / 到站强提醒渠道 / 追踪进度渠道
     single<NotificationHealthAccess> { AndroidNotificationHealthAccess(androidContext()) }
     single<UserLocationStore> { TransitUserLocationStore(get()) }
+    // 判上车的判定记录（issue #49）：追踪服务写、「我的」页导出
+    single<BoardingTraceLog> { AndroidBoardingTraceLog(androidContext(), get(AppScopeQualifier)) }
     // 收藏分组一次性数据修复的版本号（原来在 viewModelModule 里给 FavoritesGroupViewModel 现建）
     single<LocalMigrationFlags> { StoreMigrationFlags(get()) }
     factory { androidAppVersion(androidContext()) }
@@ -132,7 +136,7 @@ object AndroidLiveUpdateSettings : LiveUpdateSettings {
 }
 
 /**
- * 「我的」页「状态栏胶囊」：判断和跳转和第 17 步「更多」页里的写法一样（经 [LiveUpdateSettings]，用 applicationContext；
+ * 「我的」页「实时活动通知」那一行（原来叫「状态栏胶囊」）：判断和跳转经 [LiveUpdateSettings]，用 applicationContext（
  * 厂商适配对象打开设置页时都带 NEW_TASK）。
  *
  * 只判断「这台机器有没有 / 用户开没开」，不判断各家叫什么名字——界面上统一叫「实时活动通知」。

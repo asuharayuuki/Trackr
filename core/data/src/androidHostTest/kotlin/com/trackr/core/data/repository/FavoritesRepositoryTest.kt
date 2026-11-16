@@ -17,12 +17,15 @@ import com.trackr.core.datastore.TrackrDataStoreFiles
 import com.trackr.core.datastore.createPreferencesDataStore
 import com.trackr.core.datastore.trackrDataStorePath
 import com.trackr.core.model.CandidateLine
+import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteItemRecord
 import com.trackr.core.model.FavoriteItemType
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.GroupCategory
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.TransitGroup
 import com.trackr.core.model.TransitLeg
 import kotlinx.coroutines.CoroutineScope
@@ -335,6 +338,102 @@ class FavoritesRepositoryTest {
         assertTrue(db.routes().getRoutes().none { it.customGroupId == gym.id })
     }
 
+    // ---- 分组颜色（issue #38） ----
+
+    @Test
+    fun groupColor_createAndChange_persists_otherGroupsUntouched() = runBlocking {
+        val repo = seeded()
+        val gym = repo.createGroup("健身", GroupColor.Preset.GREEN)
+        val school = repo.createGroup("学校")
+        assertEquals(GroupColor.Preset.GREEN, gym.color)
+        assertNull(school.color)
+
+        repo.setGroupColor(school.id, GroupColor.Preset.PINK)
+        repo.setGroupColor(FavoriteItemOrder.HOME_GROUP_ID, GroupColor.Preset.BLUE)
+        repo.setGroupColor(gym.id, null)
+        // 不存在的分组：什么都不做
+        repo.setGroupColor("missing", GroupColor.Preset.RED)
+
+        fun check(r: DefaultFavoritesRepository) {
+            assertEquals(
+                listOf(FavoriteItemOrder.COMMUTE_GROUP_ID, FavoriteItemOrder.HOME_GROUP_ID, gym.id, school.id),
+                r.favoriteGroups.value.map { it.id }
+            )
+            assertEquals(listOf(null, GroupColor.Preset.BLUE, null, GroupColor.Preset.PINK), r.favoriteGroups.value.map { it.color })
+            assertEquals(listOf("上班通勤", "回家线路", "健身", "学校"), r.favoriteGroups.value.map { it.name })
+        }
+        check(repo)
+        check(open())
+        assertEquals(listOf(null, "BLUE", null, "PINK"), db.favoriteGroups().getAll().map { it.color })
+    }
+
+    @Test
+    fun groupColor_survivesRenameAndReorder() = runBlocking {
+        val repo = seeded()
+        val gym = repo.createGroup("健身", GroupColor.Preset.ORANGE)
+        repo.renameGroup(gym.id, "游泳")
+        repo.reorderGroups(listOf(gym.id))
+
+        val reopened = open()
+        val group = reopened.favoriteGroups.value.first()
+        assertEquals(gym.id, group.id)
+        assertEquals("游泳", group.name)
+        assertEquals(GroupColor.Preset.ORANGE, group.color)
+    }
+
+    @Test
+    fun groupColor_unknownStoredValue_readsAsNoColor() = runBlocking {
+        val repo = seeded()
+        val gym = repo.createGroup("健身", GroupColor.Preset.RED)
+        // 以后的版本加了新颜色、又装回这个版本：认不出的名字按不设颜色读，分组本身照常
+        val rows = db.favoriteGroups().getAll().map { if (it.id == gym.id) it.copy(color = "ULTRAVIOLET") else it }
+        db.favoriteGroups().replaceAll(rows)
+
+        val group = open().favoriteGroups.value.single { it.id == gym.id }
+        assertEquals("健身", group.name)
+        assertNull(group.color)
+    }
+
+    @Test
+    fun groupColor_custom_storedAsHex_andReadBack() = runBlocking {
+        val repo = seeded()
+        val gym = repo.createGroup("健身", GroupColor.Custom(0x12AB9F))
+        repo.setGroupColor(FavoriteItemOrder.HOME_GROUP_ID, GroupColor.Custom(0x000000))
+
+        assertEquals("#12AB9F", db.favoriteGroups().getAll().single { it.id == gym.id }.color)
+        val reopened = open()
+        assertEquals(GroupColor.Custom(0x12AB9F), reopened.favoriteGroups.value.single { it.id == gym.id }.color)
+        assertEquals(GroupColor.Custom(0), reopened.favoriteGroups.value.single { it.id == FavoriteItemOrder.HOME_GROUP_ID }.color)
+
+        // 自定义换回色板颜色
+        reopened.setGroupColor(gym.id, GroupColor.Preset.TEAL)
+        assertEquals("TEAL", db.favoriteGroups().getAll().single { it.id == gym.id }.color)
+    }
+
+    @Test
+    fun groupColor_keys() {
+        assertEquals("BLUE", GroupColor.Preset.BLUE.key)
+        assertEquals("#0A0B0C", GroupColor.Custom(0x0A0B0C).key)
+        assertEquals(GroupColor.Preset.PINK, GroupColor.fromKey("PINK"))
+        assertEquals(GroupColor.Custom(0xABCDEF), GroupColor.fromKey("#abcdef"))
+        listOf(null, "", "pink", "#12345", "#1234567", "12AB9F", "#GGGGGG").forEach { assertNull(it, GroupColor.fromKey(it)) }
+        // JSON 里仍然是 color 字段、字符串值（和第一版存的格式一样）
+        val encoded = json.encodeToString(FavoriteGroup("g", "健身", color = GroupColor.Custom(0x12AB9F)))
+        assertTrue(encoded, encoded.contains("\"color\":\"#12AB9F\""))
+        assertEquals(GroupColor.Preset.RED, json.decodeFromString<FavoriteGroup>("""{"id":"g","name":"n","color":"RED"}""").color)
+        // 认不出的值：整份照样读出来，只是没颜色
+        assertNull(json.decodeFromString<FavoriteGroup>("""{"id":"g","name":"n","color":"ULTRAVIOLET"}""").color)
+    }
+
+    @Test
+    fun legacyImport_keepsGroupColor() = runBlocking {
+        val groups = listOf(FavoriteGroup("gym", "健身", sortOrder = 0, color = GroupColor.Preset.TEAL))
+        writeLegacy(groups)
+        assertTrue(runLegacyMigration().ran)
+
+        assertEquals(GroupColor.Preset.TEAL, open().favoriteGroups.value.single().color)
+    }
+
     // ---- 旧数据迁入后顺序不变 ----
 
     /** 和 LegacyLibraryMigrationTest 一样建两个 DataStore，跑一次旧数据导入 */
@@ -560,6 +659,102 @@ class FavoritesRepositoryTest {
 
         assertTrue(reopened.favoriteGroups.value.isEmpty())
         assertTrue(reopened.favorites.value.any { it.id == "a" })
+    }
+
+    // ---- 收藏的站（issue #47） ----
+
+    private fun station(name: String, platform: String = "往北") = FavoriteStation(
+        id = FavoriteStation.idOf("051", DataSourceType.CHELAILE, name, ""),
+        cityId = "051", cityName = "莆田", stopName = name, stopId = "s-$name", physicalStId = "p-$name",
+        platformLabel = platform, wgsLat = 25.4, wgsLng = 119.0, addedAtMillis = 1L
+    )
+
+    private fun stationKey(station: FavoriteStation) = FavoriteItem.stationKey(station.id)
+
+    @Test
+    fun station_toggle_addsFirst_mixesWithOtherFavorites_andPersists() = runBlocking {
+        val repo = seeded()
+        val st = station("科技园")
+
+        assertTrue(repo.toggleStation(st))
+
+        val expected = listOf(stationKey(st), stopKey("c"), stopKey("b"), stopKey("a"), routeKey("r1"), routeKey("r2"))
+        assertEquals(expected, repo.keys())
+        assertEquals(listOf(st), repo.favoriteStations.value)
+        val reopened = open()
+        assertEquals(expected, reopened.keys())
+        assertEquals(listOf(st), reopened.favoriteStations.value)
+        assertEquals(st, (reopened.favoriteItems.value.first() as FavoriteItem.Station).station)
+
+        // 再点一次是取消：站和它的索引行都没了
+        assertFalse(repo.toggleStation(st))
+        assertTrue(repo.favoriteStations.value.isEmpty())
+        assertTrue(db.favorites().getStations().isEmpty())
+        assertTrue(db.favorites().getItems().none { it.type == "STATION" })
+        assertEquals(expected.drop(1), open().keys())
+    }
+
+    @Test
+    fun station_update_changesDefaultPlatform_keepsPositionAndGroup() = runBlocking {
+        val repo = seeded()
+        val st = station("科技园")
+        repo.toggleStation(st)
+        val gym = repo.createGroup("健身")
+        repo.setGroup(stationKey(st), gym.id)
+        repo.move(listOf(stopKey("c"), stationKey(st)))
+        val keysBefore = repo.keys()
+
+        val south = st.copy(stopId = "s-south", physicalStId = "p-south", platformLabel = "往南")
+        repo.updateStation(south)
+
+        fun check(r: DefaultFavoritesRepository) {
+            assertEquals(keysBefore, r.keys())
+            assertEquals(gym.id, r.groupOf(stationKey(st)))
+            assertEquals(listOf(south), r.favoriteStations.value)
+        }
+        check(repo)
+        check(open())
+
+        // 没收藏的站改了也不会加进来
+        repo.updateStation(station("别的站"))
+        assertEquals(listOf(south), repo.favoriteStations.value)
+    }
+
+    @Test
+    fun station_remove_andDeleteGroup_behaveLikeOtherFavorites() = runBlocking {
+        val repo = seeded()
+        val a = station("科技园")
+        val b = station("深大", platform = "")
+        repo.toggleStation(a)
+        repo.toggleStation(b)
+        val gym = repo.createGroup("健身")
+        repo.setGroup(stationKey(a), gym.id)
+
+        repo.deleteGroup(gym.id)
+        assertNull(repo.groupOf(stationKey(a)))
+
+        repo.removeStation(b.id)
+        assertEquals(listOf(a), repo.favoriteStations.value)
+        assertEquals(listOf(a), open().favoriteStations.value)
+    }
+
+    @Test
+    fun station_missingFromIndex_isReconciledInFront_staleRowsDropped() = runBlocking {
+        val repo = seeded()
+        val st = station("科技园")
+        // 站写进了表但索引里没有（例如旧存储期间加的），另外索引里有一行指向不存在的站
+        RoomFavoritesStore(db).write(
+            FavoritesWrite(
+                stations = listOf(st),
+                itemUpdates = listOf(FavoriteItemRecord(FavoriteItemType.STATION, "ghost", null, 99))
+            )
+        )
+
+        val reopened = open()
+        // 和索引里没有的车一样补在最前
+        assertEquals(listOf(stationKey(st), stopKey("c"), stopKey("b"), stopKey("a")), reopened.keys().take(4))
+        assertTrue(reopened.keys().none { it == FavoriteItem.stationKey("ghost") })
+        assertEquals(listOf(st), reopened.favoriteStations.value)
     }
 
     private companion object {

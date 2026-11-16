@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
@@ -17,16 +18,22 @@ import com.trackr.core.domain.arrival.ArrivalDisplay
 import com.trackr.core.domain.arrival.ArrivalTone
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.NearbyStop
+import com.trackr.ui.components.sort.LineSortToggleTags
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /** v3 站点详情页（第 21 步）：无状态页面，喂手写的状态、记下发出的事件 */
 @RunWith(RobolectricTestRunner::class)
+// 常见手机尺寸：列表上方有站台、排序切换两行，默认 470dp 高的屏幕放不下两条线（issue #56）
+@Config(qualifiers = "w411dp-h891dp")
 class StopDetailScreenTest {
 
     @get:Rule
@@ -127,6 +134,23 @@ class StopDetailScreenTest {
     }
 
     @Test
+    fun stationStar_inTopBar_togglesWholeStation_hiddenWhileSelecting() {
+        val state = mutableStateOf(base)
+        composeTestRule.setContent {
+            TrackrTheme { StopDetailScreen(state = state.value, onEvent = { events += it }) }
+        }
+
+        composeTestRule.onNodeWithContentDescription("收藏这个站").performClick()
+        assertEquals(listOf<StopDetailEvent>(StopDetailEvent.ToggleStationFavorite), events)
+
+        state.value = base.copy(isStationFavorite = true)
+        composeTestRule.onNodeWithContentDescription("取消收藏这个站").assertIsDisplayed()
+
+        state.value = base.copy(isStationFavorite = true, selecting = true)
+        composeTestRule.onNodeWithTag(StopDetailTags.STATION_FAVORITE).assertDoesNotExist()
+    }
+
+    @Test
     fun transitCodeButton_hiddenWhenSettingOff() {
         // 「我的」里关掉「显示乘车码按钮」：站点页底栏这个圆钮也不留
         setContent(base.copy(showTransitCodeButton = false))
@@ -160,6 +184,18 @@ class StopDetailScreenTest {
         val hoursHeight = with(composeTestRule.density) { hours.size.height.toDp() }
         assertTrue("运营时间被挤成竖排：$hoursHeight", hoursHeight < 40.dp)
         composeTestRule.onNodeWithText("今日不运营").assertIsDisplayed()
+    }
+
+    @Test
+    fun sortToggle_sendsEventOnlyWhenChanging() {
+        setContent(base)
+        // 小箭头按钮显示当前排序，点开下拉菜单再选
+        composeTestRule.onNodeWithTag(LineSortToggleTags.TRIGGER).assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag(LineSortToggleTags.BY_ARRIVAL).performClick()
+        // 选当前那项不发事件
+        composeTestRule.onNodeWithTag(LineSortToggleTags.TRIGGER).performClick()
+        composeTestRule.onNodeWithTag(LineSortToggleTags.DEFAULT).performClick()
+        assertEquals(listOf(StopDetailEvent.SetSortByArrival(true)), events)
     }
 
     @Test

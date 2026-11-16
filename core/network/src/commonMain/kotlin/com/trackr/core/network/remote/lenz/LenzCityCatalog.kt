@@ -1,0 +1,73 @@
+package com.trackr.core.network.remote.lenz
+
+import com.trackr.core.model.TransitCity
+
+/**
+ * 朗斯「掌上出行」内置城市目录（由官方 index.xml 生成，覆盖全部可连通城市）。
+ *
+ * 线上拉取失败（接口不可达、明文 HTTP 被系统策略拦截）时直接用它，
+ * 保证县级城市（范县 / 清丰 / 台前…）在 App 里始终可选。
+ * 改城市清单请改 index.xml 后重新生成，不要手改。
+ */
+internal val BUNDLED_LENZ_CITIES: List<TransitCity> = listOf(
+    LenzApiClient.cityOf(name = "福州", ip = "27.156.116.130", port = 2300, areaCode = "350100", province = "福建", region = "福州"),
+    LenzApiClient.cityOf(name = "宁海", ip = "120.76.98.113", port = 8611, areaCode = "330226", province = "浙江", region = "宁波"),
+    LenzApiClient.cityOf(name = "永城", ip = "222.89.241.120", port = 2448, areaCode = "411481", province = "河南", region = "商丘"),
+    LenzApiClient.cityOf(name = "郴州", ip = "211.143.37.50", port = 11021, areaCode = "412000", province = "湖南", region = "郴州"),
+    LenzApiClient.cityOf(name = "武夷", ip = "120.76.98.113", port = 8610, areaCode = "350782", province = "福建", region = "南平"),
+    LenzApiClient.cityOf(name = "钦州", ip = "117.141.228.11", port = 8616, areaCode = "450700", province = "广西", region = "钦州"),
+    LenzApiClient.cityOf(name = "渭南", ip = "123.139.201.114", port = 8615, areaCode = "610500", province = "陕西", region = "渭南"),
+    LenzApiClient.cityOf(name = "康定", ip = "221.10.233.148", port = 1003, areaCode = "513301", province = "四川", region = "甘孜"),
+    LenzApiClient.cityOf(name = "滦平", ip = "36.7.107.157", port = 8635, areaCode = "130824", province = "河北", region = "承德"),
+    LenzApiClient.cityOf(name = "吴忠", ip = "222.75.2.180", port = 2447, areaCode = "640300", province = "宁夏", region = "吴忠"),
+    LenzApiClient.cityOf(name = "咸丰", ip = "120.76.98.113", port = 8612, areaCode = "422826", province = "湖北", region = "恩施"),
+    LenzApiClient.cityOf(name = "昌吉", ip = "117.29.161.242", port = 8613, areaCode = "652301", province = "新疆", region = "昌吉"),
+    LenzApiClient.cityOf(name = "Pekanbaru", ip = "117.29.161.242", port = 8610, areaCode = "", province = "其他", region = "Pekanbaru"),
+    LenzApiClient.cityOf(name = "三明将乐", ip = "117.29.161.242", port = 8611, areaCode = "350428", province = "福建", region = "三明"),
+    LenzApiClient.cityOf(name = "莆田仙游", ip = "117.29.161.242", port = 8612, areaCode = "350322", province = "福建", region = "莆田"),
+    LenzApiClient.cityOf(name = "辽宁城际", ip = "112.54.3.72", port = 11047, areaCode = "210100", province = "辽宁", region = "沈阳"),
+    LenzApiClient.cityOf(name = "利川", ip = "119.3.214.246", port = 8615, areaCode = "422802", province = "湖北", region = "恩施"),
+    LenzApiClient.cityOf(name = "滑县", ip = "222.88.151.90", port = 8611, areaCode = "410526", province = "河南", region = "安阳"),
+    LenzApiClient.cityOf(name = "澳门新福利", ip = "47.91.147.90", port = 2300, areaCode = "820000", province = "港澳台", region = "澳门"),
+    LenzApiClient.cityOf(name = "武威", ip = "124.152.213.1", port = 12318, areaCode = "620600", province = "甘肃", region = "武威"),
+    LenzApiClient.cityOf(name = "香河", ip = "60.10.138.58", port = 8615, areaCode = "131024", province = "河北", region = "廊坊"),
+    LenzApiClient.cityOf(name = "怀宁", ip = "183.161.28.249", port = 8611, areaCode = "340822", province = "安徽", region = "安庆"),
+    LenzApiClient.cityOf(name = "莱芜长运", ip = "111.17.170.182", port = 11048, areaCode = "371200", province = "山东", region = "莱芜"),
+    LenzApiClient.cityOf(name = "潍坊交运", ip = "112.35.78.186", port = 11047, areaCode = "370700", province = "山东", region = "潍坊"),
+    LenzApiClient.cityOf(name = "林州", ip = "122.114.161.234", port = 8615, areaCode = "410581", province = "河南", region = "安阳"),
+    LenzApiClient.cityOf(name = "大连昌赫", ip = "124.93.112.200", port = 11048, areaCode = "210200", province = "辽宁", region = "大连"),
+    LenzApiClient.cityOf(name = "仰光", ip = "47.75.140.180", port = 8615, areaCode = "", province = "其他", region = "仰光"),
+    LenzApiClient.cityOf(name = "兴化", ip = "58.222.245.38", port = 9998, areaCode = "321281", province = "江苏", region = "泰州"),
+    LenzApiClient.cityOf(name = "郎溪", ip = "36.7.107.157", port = 8625, areaCode = "341821", province = "安徽", region = "宣城"),
+    LenzApiClient.cityOf(name = "肥西", ip = "60.173.221.232", port = 8615, areaCode = "340123", province = "安徽", region = "合肥"),
+    LenzApiClient.cityOf(name = "泗县", ip = "60.175.228.132", port = 10822, areaCode = "341324", province = "安徽", region = "宿州"),
+    LenzApiClient.cityOf(name = "赣榆", ip = "218.92.24.67", port = 9998, areaCode = "320707", province = "江苏", region = "连云港"),
+    LenzApiClient.cityOf(name = "醴陵", ip = "175.6.63.216", port = 8615, areaCode = "430281", province = "湖南", region = "株洲"),
+    LenzApiClient.cityOf(name = "开化", ip = "123.157.96.104", port = 8615, areaCode = "330824", province = "浙江", region = "衢州"),
+    LenzApiClient.cityOf(name = "长春寰旗", ip = "222.161.211.39", port = 8615, areaCode = "220100", province = "吉林", region = "长春"),
+    LenzApiClient.cityOf(name = "漳平", ip = "211.138.135.58", port = 8615, areaCode = "364400", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "上杭", ip = "211.138.135.58", port = 8625, areaCode = "350823", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "武平", ip = "211.138.135.58", port = 8635, areaCode = "350824", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "永定", ip = "211.138.135.58", port = 8645, areaCode = "350803", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "长汀", ip = "211.138.135.58", port = 8655, areaCode = "350821", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "连城", ip = "211.138.135.58", port = 8665, areaCode = "350825", province = "福建", region = "龙岩"),
+    LenzApiClient.cityOf(name = "环县", ip = "125.74.47.126", port = 8615, areaCode = "621022", province = "甘肃", region = "庆阳"),
+    LenzApiClient.cityOf(name = "汉川", ip = "119.96.192.229", port = 8615, areaCode = "420984", province = "湖北", region = "孝感"),
+    LenzApiClient.cityOf(name = "周宁", ip = "120.76.98.113", port = 8613, areaCode = "", province = "其他", region = "周宁"),
+    LenzApiClient.cityOf(name = "楚雄", ip = "116.55.11.77", port = 8615, areaCode = "", province = "云南", region = "楚雄"),
+    LenzApiClient.cityOf(name = "巴林右旗", ip = "60.31.253.181", port = 3089, areaCode = "", province = "内蒙古", region = "赤峰"),
+    LenzApiClient.cityOf(name = "全椒", ip = "183.167.207.156", port = 8615, areaCode = "", province = "安徽", region = "滁州"),
+    LenzApiClient.cityOf(name = "屏南", ip = "120.76.98.113", port = 8618, areaCode = "", province = "福建", region = "宁德"),
+    LenzApiClient.cityOf(name = "信丰", ip = "223.83.186.229", port = 8615, areaCode = "", province = "江西", region = "赣州"),
+    LenzApiClient.cityOf(name = "涡阳", ip = "112.132.159.114", port = 8615, areaCode = "", province = "安徽", region = "亳州"),
+    LenzApiClient.cityOf(name = "长顺", ip = "120.76.98.113", port = 8200, areaCode = "", province = "贵州", region = "黔南"),
+    LenzApiClient.cityOf(name = "范县", ip = "120.76.98.113", port = 8619, areaCode = "", province = "河南", region = "濮阳"),
+    LenzApiClient.cityOf(name = "河源", ip = "125.89.196.5", port = 8615, areaCode = "", province = "广东", region = "河源"),
+    LenzApiClient.cityOf(name = "定远", ip = "112.28.66.211", port = 8615, areaCode = "", province = "安徽", region = "滁州"),
+    LenzApiClient.cityOf(name = "涿鹿", ip = "106.112.132.244", port = 8615, areaCode = "", province = "河北", region = "张家口"),
+    LenzApiClient.cityOf(name = "自贡", ip = "218.200.190.22", port = 8615, areaCode = "", province = "四川", region = "自贡"),
+    LenzApiClient.cityOf(name = "唐山汉沽", ip = "221.239.115.130", port = 8615, areaCode = "", province = "河北", region = "唐山"),
+    LenzApiClient.cityOf(name = "清丰", ip = "123.60.104.115", port = 8625, areaCode = "", province = "河南", region = "濮阳"),
+    LenzApiClient.cityOf(name = "台前", ip = "123.60.104.115", port = 8635, areaCode = "", province = "河南", region = "濮阳"),
+    LenzApiClient.cityOf(name = "秦皇岛", ip = "139.9.36.149", port = 8615, areaCode = "", province = "河北", region = "秦皇岛"),
+)

@@ -10,8 +10,9 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
  * trackr.kmp.feature：功能模块（`:feature:*`）= `trackr.kmp.library` + `trackr.kmp.compose` + 共用依赖。
  *
  * - commonMain：`:core:*`（feature 只依赖 core，不互相依赖）、CMP、KMP 版 ViewModel / lifecycle-compose、Koin。
- *   ViewModel、UiState、`xxxEntries()` 的声明放这里。
- * - androidMain：Jetpack Compose（Material 3、图标）。第 17 步旧 Screen 原样放这里，阶段 D 逐页重写进 commonMain。
+ *   ViewModel、UiState、页面、`xxxEntries()` 都放这里。
+ * - androidMain：Jetpack Compose（Material 3、图标）。只放平台实现（`:feature:route` 的高德 SDK 和地图、
+ *   `:feature:search` 的语音输入），页面不放这里。
  * - 测试：commonTest（kotlin.test + `:core:testing` 的 Fake + coroutines-test）、androidHostTest（Robolectric + Compose UI 测试）。
  */
 class KmpFeatureConventionPlugin : Plugin<Project> {

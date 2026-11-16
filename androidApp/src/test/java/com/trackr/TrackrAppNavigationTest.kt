@@ -63,7 +63,7 @@ import org.robolectric.annotation.Config
 /**
  * 第 17 步：首页轮询开关从 MainActivity 的 shouldPollHome 挪进首页 Route 的 LifecycleStartEffect（重构计划 §4.4）。
  * 用真实的 TrackrRoot（App 启动时装好的 Koin 图，首页 ViewModel 换成接 Fake 的）走一遍：
- * 进子页 / 切页签后首页停轮询，回来时离上次刷新超过一个周期（15 秒）就立即补刷一次，没超过就不补。
+ * 进子页 / 切页签后首页停轮询，回来时离上次刷新超过一个周期（3 秒）就立即补刷一次，没超过就不补。
  *
  * 第 18 步：deep link 冷启动（首帧就带着链接）/ 热启动（App 已开着、停在别处）都落成合成返回栈 `[首页, 线路详情]`（§3.6）。
  */
@@ -207,7 +207,7 @@ class TrackrAppNavigationTest {
         composeTestRule.waitForIdle()
 
         assertTrue("回到首页恢复轮询", homeViewModel.isPollingActive)
-        assertEquals("离上次刷新超过 15 秒：立即补刷一次", callsBefore + 1, realtime.nearbyStopsCalls.size)
+        assertEquals("离上次刷新超过一个周期（3 秒）：立即补刷一次", callsBefore + 1, realtime.nearbyStopsCalls.size)
     }
 
     @Test
@@ -218,17 +218,17 @@ class TrackrAppNavigationTest {
         assertFalse("进搜索页（首页栈上的子页）后首页停轮询", homeViewModel.isPollingActive)
 
         val callsBefore = realtime.nearbyStopsCalls.size
-        now += 5_000L
+        now += 1_000L
         pressBack()
 
         assertTrue("返回首页恢复轮询", homeViewModel.isPollingActive)
-        assertEquals("不到 15 秒：不补刷", callsBefore, realtime.nearbyStopsCalls.size)
+        assertEquals("不到 3 秒：不补刷", callsBefore, realtime.nearbyStopsCalls.size)
     }
 
     @Test
     fun favoritesGroup_isChildPageOfHome_andBackReturnsHome() {
         launch()
-        // 「收藏」不再是页签：首页收藏的「编辑」把旧收藏页压在首页栈上（新编辑页第 22 步）
+        // 「收藏」不是页签：首页收藏的「编辑」把编辑收藏页压在首页栈上
         // 底栏页签带 Selected 语义；不应再有叫「收藏」的页签
         val favoriteTabs = composeTestRule.onAllNodes(
             hasText("收藏") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)

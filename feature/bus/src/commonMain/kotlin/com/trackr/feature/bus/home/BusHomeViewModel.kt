@@ -16,7 +16,9 @@ import com.trackr.core.domain.platform.ProcessMonotonicClock
 import com.trackr.core.domain.platform.SystemSettingsLauncher
 import com.trackr.core.domain.platform.TrackingController
 import com.trackr.core.domain.platform.TransitCodeLauncher
+import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.EngineMode
+import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.ProvinceCityCatalog
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,7 +39,7 @@ import kotlin.concurrent.Volatile
 /**
  * v3 公交首页（重构计划第 19 步，原 `HomeViewModel`）。
  *
- * - 附近站固定 6 个；附近站 + 收藏实时每 15 秒轮询一次，由 [BusHomeRoute] 随 STARTED 开关（§4.4），
+ * - 附近站固定 6 个；附近站 + 收藏实时每 3 秒轮询一次，由 [BusHomeRoute] 随 STARTED 开关（§4.4），
  *   恢复时距上次刷新超过一个周期就立即补刷。
  * - 定位走 [LocationRepository.bestFix]（4.5 秒窗口内取最准）。
  * - 追踪卡读所有会话（同时可以追多项，一项一张卡）；「结束」只停那一项。
@@ -83,6 +86,9 @@ class BusHomeViewModel(
     private var catchUpPollJob: Job? = null
 
     private var nextMessageId = 1L
+
+    /** 「本城全部线路」加载的代际号：切城市 / 切数据源会并发触发多次加载，只让最新一次的结果落地 */
+    private var cityLinesGeneration = 0
 
     internal val pollingCoordinator = PollingCoordinator(
         scope = viewModelScope,
@@ -155,6 +161,15 @@ class BusHomeViewModel(
                     }
                     loadNearbyStops(coords.first, coords.second, cityOverride = city)
                 }
+                loadCityLines(city)
+            }
+        }
+
+        // 数据源变了（含首次启动）就重新拉一次「本城全部线路」：掌上出行能列，
+        // 车来了 / 掌上公交列不了会返回空表，首页自然不显示这块
+        viewModelScope.launch {
+            settings.engineMode.collect {
+                loadCityLines(settings.selectedCity.value)
             }
         }
 
@@ -170,6 +185,17 @@ class BusHomeViewModel(
             favorites.favoriteItems.collect { items ->
                 edit { it.copy(favoriteItems = items) }
             }
+        }
+
+        // 新收藏了站（issue #47）：马上查一次，不用等下一轮刷新才从「正在查车」变成到站
+        viewModelScope.launch {
+            favorites.favoriteStations
+                .map { list -> list.map { it.id }.toSet() }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { ids ->
+                    if (ids.any { FavoriteItem.stationKey(it) !in _uiState.value.favoritesRealtime }) refreshFavoritesRealtime()
+                }
         }
 
         // 收藏分组；选中的分组被删了就回到「全部」
@@ -214,6 +240,13 @@ class BusHomeViewModel(
             }
         }
 
+        // 附近站线路排序（issue #56）：和站点页同一个开关
+        viewModelScope.launch {
+            settings.sortLinesByArrival.collect { enabled ->
+                edit { it.copy(sortNearbyByArrival = enabled) }
+            }
+        }
+
         // 初始化加载支持的城市
         loadSupportedCities()
 
@@ -226,6 +259,7 @@ class BusHomeViewModel(
         when (event) {
             BusHomeEvent.Refresh -> refresh()
             BusHomeEvent.RetryLocation -> refreshLocationAndNearby()
+            is BusHomeEvent.SetNearbySortByArrival -> settings.setSortLinesByArrival(event.enabled)
             is BusHomeEvent.StopTracking -> stopTracking(event.sessionId, event.watchLineId)
             is BusHomeEvent.SelectGroup -> selectGroup(event.groupId)
             BusHomeEvent.TransitCodeClicked -> onTransitCodeClicked()
@@ -487,13 +521,71 @@ class BusHomeViewModel(
     }
 
     fun setCityPickerOpen(isOpen: Boolean) {
+        var provinceToProbe: String? = null
         edit {
             val defaultProvince = if (isOpen) {
                 it.currentCity.province.ifBlank { ProvinceCityCatalog.inferProvince(it.currentCity.cityName) }
             } else {
                 it.selectedProvince
             }
+            if (isOpen) provinceToProbe = defaultProvince
             it.copy(isCityPickerOpen = isOpen, citySearchQuery = "", selectedProvince = defaultProvince)
+        }
+        provinceToProbe?.let(::probeUnreachableCities)
+    }
+
+    /**
+     * 载入当前城市的全部线路。
+     *
+     * 掌上出行一个县就二三十条线，首页直接铺开比让用户先搜更合理；
+     * 车来了 / 掌上公交列不了「全部」，会返回空表，首页这两块不显示。
+     */
+    private fun loadCityLines(city: TransitCity = _uiState.value.currentCity) {
+        val generation = ++cityLinesGeneration
+        viewModelScope.launch {
+            edit { it.copy(isLoadingCityLines = true) }
+            // 一条线路一行；正反方向都有的提示「⇄」，进详情可以换向。
+            // 有线路号（1路、2路…）的按号码升序排在前面，没编号的按名字排在后面。
+            val lines = realtime.listAllLines(city).getOrNull().orEmpty()
+                .sortedWith(compareBy({ routeNumberOrderOf(it.name) }, { it.name }))
+            val ui = lines.mapNotNull { summary ->
+                val direction = summary.primaryDirection ?: return@mapNotNull null
+                CityLineUi(
+                    key = summary.name,
+                    lineName = summary.name,
+                    startStop = direction.startStop,
+                    endStop = direction.endStop,
+                    isBidirectional = summary.directions.size > 1,
+                    open = LineTarget(
+                        cityId = city.cityId,
+                        lineId = direction.lineId,
+                        targetOrder = 1,
+                        stopId = "",
+                        source = direction.source,
+                        lineName = summary.name
+                    )
+                )
+            }
+            // 已有更新的一次加载（又切了城市 / 数据源）：这份结果过期，丢弃，避免旧城市的线路盖掉新城市
+            if (generation != cityLinesGeneration) return@launch
+            edit { it.copy(cityLines = ui, isLoadingCityLines = false) }
+        }
+    }
+
+    /** 线路名开头的「1路」「10路」取出数字用于排序；没编号的排到最后 */
+    private fun routeNumberOrderOf(lineName: String): Int {
+        val match = Regex("^(\\d+)路").find(lineName.trim()) ?: return Int.MAX_VALUE
+        return match.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+    }
+
+    /** 探测当前省里哪些掌上出行城市连不上（结果只用于在选择器里标「离线」） */
+    private fun probeUnreachableCities(province: String) {
+        viewModelScope.launch {
+            val cities = _uiState.value.cities.filter {
+                it.province.ifBlank { ProvinceCityCatalog.inferProvince(it.cityName) } == province
+            }
+            val offline = realtime.unreachableCities(cities)
+            edit { it.copy(unreachableCityNames = offline) }
         }
     }
 
@@ -503,6 +595,7 @@ class BusHomeViewModel(
 
     fun selectProvince(province: String) {
         edit { it.copy(selectedProvince = province) }
+        probeUnreachableCities(province)
     }
 
     fun selectCity(city: TransitCity) {
@@ -516,11 +609,11 @@ class BusHomeViewModel(
                 ProvinceCityCatalog.getCityCenterCoordinates(city.cityName)
             }
 
-            // 若所选城市仅某单一数据源支持，自动联动切换至支持的引擎
-            if (city.cityId.isBlank() && !city.mygolbsCityCode.isNullOrBlank() && state.engineMode != EngineMode.MYGOLBS) {
-                setEngineMode(EngineMode.MYGOLBS)
-            } else if (city.cityId.isNotBlank() && city.mygolbsCityCode.isNullOrBlank() && state.engineMode != EngineMode.CHELAILE) {
-                setEngineMode(EngineMode.CHELAILE)
+            // 三个数据源对城市的覆盖是重叠 + 互补的：当前源支持就留着，
+            // 不支持就切到能查这个城市的第一顺位源（车来了 > 掌上公交 > 掌上出行）。
+            val supportedEngines = supportedEnginesOf(city)
+            if (supportedEngines.isNotEmpty() && state.engineMode !in supportedEngines) {
+                setEngineMode(supportedEngines.first())
             }
 
             edit {
@@ -534,9 +627,24 @@ class BusHomeViewModel(
                 )
             }
             settings.selectCity(city)
+            // 显式按新城市重拉「本城全部线路」：selectedCity 收集器会因 currentCity 已先行更新而跳过，
+            // 数据源没变时引擎收集器也不触发，不主动拉就会一直显示上一个城市的线路
+            loadCityLines(city)
             loadNearbyStops(coords.first, coords.second, cityOverride = city)
             refreshFavoritesRealtime()
         }
+    }
+
+    /**
+     * 这个城市能被哪些数据源查到，按优先级排列。
+     *
+     * 车来了 / 掌上公交看城市编码，掌上出行看服务器；县级城市只有掌上出行有。
+     * 顺序即「都支持时优先用哪个」：车来了 > 掌上公交 > 掌上出行。
+     */
+    private fun supportedEnginesOf(city: TransitCity): List<EngineMode> = buildList {
+        if (city.cityId.isNotBlank()) add(EngineMode.CHELAILE)
+        if (!city.mygolbsCityCode.isNullOrBlank()) add(EngineMode.MYGOLBS)
+        if (!city.lenzServerIp.isNullOrBlank()) add(EngineMode.LENZ)
     }
 
     fun setEngineMode(mode: EngineMode) {
@@ -545,7 +653,8 @@ class BusHomeViewModel(
 
     fun toggleEngineMode() {
         val nextMode = when (_uiState.value.engineMode) {
-            EngineMode.MYGOLBS -> EngineMode.CHELAILE
+            EngineMode.MYGOLBS -> EngineMode.LENZ
+            EngineMode.LENZ -> EngineMode.CHELAILE
             EngineMode.CHELAILE -> EngineMode.MYGOLBS
         }
         setEngineMode(nextMode)
@@ -618,7 +727,7 @@ class BusHomeViewModel(
     companion object {
         /** 附近站固定 6 个（v3：删掉「附近站数」设置） */
         const val NEARBY_STOPS_LIMIT = 6
-        const val POLLING_INTERVAL_MS = 15_000L
+        const val POLLING_INTERVAL_MS = 3_000L
 
         const val NEARBY_FAILED = "附近站没刷出来，下拉再试一次"
 

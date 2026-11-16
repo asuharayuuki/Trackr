@@ -25,7 +25,7 @@ import org.koin.dsl.module
 
 actual fun EntryProviderScope<NavKey>.routeEntries(navigator: TrackrNavigator) {
     entry<ScreenKey.RoutePlan> {
-        // 原来 MainActivity 在 NavDisplay 外取一个 FavoritesGroupViewModel 给规划页和收藏页共用；拆开后仍取 Activity 级
+        // 规划页和路线详情页共用这两个 ViewModel，取 Activity 级（TrackrRoot 里已经先取过一次）
         val appOwner = LocalAppViewModelStoreOwner.current
         val routePlanViewModel: RoutePlanViewModel = koinViewModel(viewModelStoreOwner = appOwner)
         val routeDetailViewModel: RouteDetailViewModel = koinViewModel(viewModelStoreOwner = appOwner)
@@ -38,18 +38,10 @@ actual fun EntryProviderScope<NavKey>.routeEntries(navigator: TrackrNavigator) {
             onNavigateToFavorites = dropUnlessResumed {
                 navigator.showInTab(ScreenKey.Home, ScreenKey.FavoritesEdit)
             },
-            onNavigateToLineDetail = { line, targetOrder ->
+            onNavigateToLineDetail = { line, _ ->
                 // 只在 RESUMED 时跳，防连点重复入栈（同 dropUnlessResumed）
                 if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                    val key = ScreenKey.LineDetail(
-                        cityId = line.cityId,
-                        lineId = line.lineId,
-                        targetOrder = targetOrder,
-                        stopId = "",
-                        source = line.source,
-                        lineName = line.lineName
-                    )
-                    navigator.open(key)
+                    navigator.open(line.toLineDetailKey())
                 }
             }
         )

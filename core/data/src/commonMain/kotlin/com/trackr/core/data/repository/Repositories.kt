@@ -6,10 +6,13 @@ import com.trackr.core.model.AmapTipItem
 import com.trackr.core.model.AmapTransitSchemeResult
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
@@ -24,6 +27,7 @@ import com.trackr.core.model.UserFix
 import com.trackr.core.network.remote.mygolbs.MygolbsIds
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /*
  * 原来的上帝接口 ITransitRepository 按职责拆成下面几个（重构计划 §2.5）。
@@ -63,6 +67,18 @@ interface SettingsRepository {
      * 需要精确定位；没有权限时这项开关不生效（判不出上车，追踪照旧）。
      */
     val autoStopAfterBoarding: StateFlow<Boolean>
+
+    /**
+     * 语音播报提醒（issue #52），默认关：追踪的到站 / 快到 / 换乘 / 没赶上提醒除了通知和振动，再用朗读引擎念一遍。
+     * 旧 Android 上通知不显眼，戴耳机、手机在兜里时也能听到。
+     */
+    val voiceAlerts: StateFlow<Boolean>
+
+    /**
+     * 线路按到站先后排（issue #56），默认关（按数据源给的顺序）：站点页和首页附近站卡片共用这一个开关，
+     * 两处各有一个切换，切了会记住。首页「收藏的站」不听它，一直按到站先后排。
+     */
+    val sortLinesByArrival: StateFlow<Boolean>
     val nearbyStopsCount: StateFlow<Int>
     val isLiveNotificationEnabled: StateFlow<Boolean>
 
@@ -103,6 +119,8 @@ interface SettingsRepository {
     suspend fun setPreferredTransitCodeProvider(provider: TransitCodeProvider)
     fun setShowTransitCodeButton(enabled: Boolean)
     fun setAutoStopAfterBoarding(enabled: Boolean)
+    fun setVoiceAlerts(enabled: Boolean)
+    fun setSortLinesByArrival(enabled: Boolean)
 }
 
 /**
@@ -117,7 +135,7 @@ interface FavoritesRepository {
     /** 收藏的车，按合一顺序 */
     val favorites: StateFlow<List<FavoriteStationLine>>
 
-    /** 合一列表：车 + 路线，按 sortOrder */
+    /** 合一列表：车 + 路线 + 站，按 sortOrder */
     val favoriteItems: StateFlow<List<FavoriteItem>>
 
     /** 路线，按合一顺序；每条的 `customGroupId` 和它在 [favoriteItems] 里的分组一致（`sortOrder` 是路线之间的旧排序字段） */
@@ -129,6 +147,16 @@ interface FavoritesRepository {
     /** 有就删、没有就加到最前；返回 true 表示这次是加 */
     suspend fun toggleFavorite(item: FavoriteStationLine): Boolean
     suspend fun removeFavorite(id: String)
+
+    /** 收藏的站（issue #47），按合一顺序 */
+    val favoriteStations: StateFlow<List<FavoriteStation>>
+
+    /** 收藏的站：有（同 id）就删、没有就加到最前；返回 true 表示这次是加 */
+    suspend fun toggleStation(station: FavoriteStation): Boolean
+
+    /** 改已收藏的站（换默认站台）：内容换成传进来的，位置和分组不变；没收藏时什么都不做 */
+    suspend fun updateStation(station: FavoriteStation)
+    suspend fun removeStation(id: String)
 
     /**
      * 拖动排序：[keys]（[FavoriteItem.key]）按给的先后排，占用的还是这些收藏原来的位置，没列出的收藏不动。
@@ -143,8 +171,12 @@ interface FavoritesRepository {
     suspend fun saveRoute(route: TransitGroup)
     suspend fun removeRoute(routeId: String)
 
-    suspend fun createGroup(name: String): FavoriteGroup
+    /** 新建分组，排在最后；[color] 为 null 时不设颜色 */
+    suspend fun createGroup(name: String, color: GroupColor? = null): FavoriteGroup
     suspend fun renameGroup(groupId: String, newName: String)
+
+    /** 改分组颜色（issue #38），null = 不设颜色；分组不存在时什么都不做 */
+    suspend fun setGroupColor(groupId: String, color: GroupColor?)
 
     /** 删分组：组里的收藏（车和路线）都变不分组，不删 */
     suspend fun deleteGroup(groupId: String)
@@ -219,9 +251,39 @@ interface RealtimeRepository {
      */
     fun stopDetailIncludesBuses(source: DataSourceType): Boolean = true
 
-    /** 收藏的每条线各查一次线路详情（命中 6 秒合并缓存），返回 收藏 id -> 站点 */
+    /**
+     * 收藏的每条线各查一次线路详情（命中 6 秒合并缓存），返回 收藏 id -> 站点。
+     * 收藏的站（issue #47）每个站查一次站点接口，key 是 [com.trackr.core.model.FavoriteItem.stationKey]，值是默认站台
+     * （找不到站台时是一个没有线路的站）。
+     */
     suspend fun refreshFavoritesRealtime(): Result<Map<String, NearbyStop>>
+
+    /**
+     * 这批城市里哪些当前连不上数据源（只有掌上出行的「一城一服务器」会真的离线）。
+     * 默认空集，Fake 不用改。
+     */
+    suspend fun unreachableCities(cities: List<TransitCity>): Set<String> = emptySet()
+
+    /**
+     * 当前城市能列出来的全部线路（掌上出行的县级城市线路少，首页直接铺开）。
+     * 数据源不支持时返回空表。默认空表，Fake 不用改。
+     */
+    suspend fun listAllLines(city: TransitCity): Result<List<BusLineSummary>> = Result.success(emptyList())
+
+    /**
+     * 每一份真正从上游拿到的线路详情（命中缓存的不算）。追踪服务等下一轮时订阅它：
+     * 页面刚查过同一条线、同一个候车站，就直接拿这份刷新追踪和通知。默认没有（Fake 不用改）。
+     */
+    val lineDetailUpdates: Flow<LineDetailUpdate> get() = emptyFlow()
 }
+
+/** [RealtimeRepository.lineDetailUpdates] 的一项：哪个数据源、哪条线、按哪个候车站查的 */
+data class LineDetailUpdate(
+    val source: DataSourceType,
+    val lineId: String,
+    val targetOrder: Int?,
+    val detail: BusLineDetail
+)
 
 /**
  * 手机定位（WGS-84），都带精度和单调时刻（[UserFix]）。实现经 `LocationSource`（Android / iOS 各一份）。
@@ -259,8 +321,8 @@ interface LocationRepository {
 /**
  * 高德输入提示 / 公交算路通道。
  *
- * Android 实现（现在在 `FavoritesGroupViewModel` 里）：SDK 优先，**只有 SDK 调用失败**才回落 Web 服务；
- * SDK 成功但结果为空时不再重复请求 Web。iOS 只走 Web。单元测试可注入替身，避免发起真实请求。
+ * Android 实现（`:feature:route` 的 `AndroidAmapRouteGateway`）：SDK 优先，**只有 SDK 调用失败**才回落 Web 服务；
+ * SDK 成功但结果为空时不再重复请求 Web。iOS 只走 Web（`WebAmapRouteGateway`）。单元测试可注入替身，避免发起真实请求。
  */
 interface AmapRouteGateway {
     /** 是否至少配置了一条可用通道（Android Key 或 Web 服务 Key） */

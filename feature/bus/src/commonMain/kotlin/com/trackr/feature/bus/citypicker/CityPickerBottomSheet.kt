@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -77,12 +78,17 @@ fun CityPickerItemRow(
     modifier: Modifier = Modifier,
     showProvinceBadge: Boolean = false,
     provinceName: String? = null,
+    /** 县级城市挂在所属地级市下面，缩进一级 */
+    isCounty: Boolean = false,
+    /** 该城市的数据源当前连不上（掌上出行服务器离线） */
+    isUnreachable: Boolean = false,
     shape: Shape = RoundedCornerShape(10.dp),
     contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
 ) {
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .padding(start = if (isCounty) 14.dp else 0.dp)
             .clip(shape)
             .clickable(onClick = onClick),
         color = if (isCurrent) {
@@ -92,16 +98,19 @@ fun CityPickerItemRow(
         },
         shape = shape
     ) {
-        Row(
+        // 城市名在前、标签在后；放不下一行时整组标签换到下一行，标签多了自己再换行。
+        // 以前标签行不占权重、先量，大字体下把城市名挤成一字一行（#44）。
+        FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(contentPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            itemVerticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f, fill = false)
+                modifier = Modifier.padding(end = 8.dp)
             ) {
                 Text(
                     text = city.cityName,
@@ -118,14 +127,15 @@ fun CityPickerItemRow(
                     val prov = provinceName ?: city.province.ifBlank {
                         ProvinceCityCatalog.inferProvince(city.cityName)
                     }
-                    if (prov.isNotBlank()) {
+                    val trail = city.prefectureTrail()
+                    if (prov.isNotBlank() || trail.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
-                                text = prov,
+                                text = listOf(prov, trail).filter { it.isNotBlank() }.joinToString(" · "),
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -135,11 +145,10 @@ fun CityPickerItemRow(
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment = Alignment.CenterVertically
             ) {
                 if (isCurrent) {
                     Surface(
@@ -184,13 +193,59 @@ fun CityPickerItemRow(
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp)
                     )
                 }
+                if (!city.lenzServerIp.isNullOrBlank()) {
+                    if (isUnreachable) {
+                        // 离线：底色变灰，文案直接写「掌上出行（离线）」，不再单独挂一个「离线」小标
+                        DataSourceBadge(
+                            text = "${DataSourceType.LENZ.displayName}（离线）",
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.outline,
+                            shape = MaterialTheme.shapes.extraSmall,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    } else {
+                        DataSourceBadge(
+                            style = DataSourceBadgeStyle.LENZ,
+                            text = DataSourceType.LENZ.displayName,
+                            shape = MaterialTheme.shapes.extraSmall,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 /**
- * 全国 480+ 城市两级（省份 → 城市）选择器 BottomSheet
+ * 「省 → 地级市 → 县级市」里的地级市分组标题（上级城市本身不在列表时用）
+ */
+@Composable
+private fun PrefectureHeaderRow(name: String, province: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (province.isNotBlank()) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = province,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+/**
+ * 全国 480+ 城市三级（省份 → 地级市 → 县级市）选择器 BottomSheet
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -207,7 +262,9 @@ fun CityPickerBottomSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     hotCities: List<TransitCity>? = null,
-    allCities: List<TransitCity> = cities
+    allCities: List<TransitCity> = cities,
+    /** 当前连不上数据源的城市名（掌上出行服务器离线） */
+    unreachableCityNames: Set<String> = emptySet()
 ) {
     val effectiveCities = if (allCities.isNotEmpty()) allCities else cities
 
@@ -275,6 +332,8 @@ fun CityPickerBottomSheet(
                     effectiveCities.filter {
                         it.cityName.lowercase().contains(q) ||
                             it.pinyin.lowercase().contains(q) ||
+                            // 搜地级市也能带出它下辖的县
+                            it.lenzRegion.orEmpty().lowercase().contains(q) ||
                             (it.province.ifBlank { ProvinceCityCatalog.inferProvince(it.cityName) }).lowercase().contains(q)
                     }
                 }
@@ -311,6 +370,8 @@ fun CityPickerBottomSheet(
                             isLocated = city.matchesCity(locatedCity),
                             onClick = { onSelectCity(city) },
                             showProvinceBadge = true,
+                            isCounty = city.isCountyLevel(),
+                            isUnreachable = city.cityName in unreachableCityNames,
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
                         )
@@ -525,6 +586,8 @@ fun CityPickerBottomSheet(
                             modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp)
                         )
 
+                        val provinceRows = remember(provinceCities) { buildCityPickerRows(provinceCities) }
+
                         LazyColumn(
                             modifier = Modifier
                                 .weight(1f)
@@ -533,19 +596,41 @@ fun CityPickerBottomSheet(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             items(
-                                items = provinceCities,
-                                key = { it.uniqueKey },
-                                contentType = { "province_city" }
-                            ) { city ->
-                                CityPickerItemRow(
-                                    city = city,
-                                    isCurrent = city.matchesCity(currentCity),
-                                    isLocated = city.matchesCity(locatedCity),
-                                    onClick = { onSelectCity(city) },
-                                    showProvinceBadge = false,
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
-                                )
+                                items = provinceRows,
+                                key = { it.key },
+                                contentType = { row ->
+                                    when (row) {
+                                        is CityPickerRow.City -> "province_city"
+                                        is CityPickerRow.County -> "province_county"
+                                        is CityPickerRow.PrefectureHeader -> "prefecture_header"
+                                    }
+                                }
+                            ) { row ->
+                                when (row) {
+                                    is CityPickerRow.City -> CityPickerItemRow(
+                                        city = row.city,
+                                        isCurrent = row.city.matchesCity(currentCity),
+                                        isLocated = row.city.matchesCity(locatedCity),
+                                        onClick = { onSelectCity(row.city) },
+                                        showProvinceBadge = false,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                                    )
+
+                                    is CityPickerRow.County -> CityPickerItemRow(
+                                        city = row.city,
+                                        isCurrent = row.city.matchesCity(currentCity),
+                                        isLocated = row.city.matchesCity(locatedCity),
+                                        onClick = { onSelectCity(row.city) },
+                                        showProvinceBadge = false,
+                                        isCounty = true,
+                                        isUnreachable = row.city.cityName in unreachableCityNames,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                                    )
+
+                                    is CityPickerRow.PrefectureHeader -> PrefectureHeaderRow(row.name, row.province)
+                                }
                             }
                         }
                     }

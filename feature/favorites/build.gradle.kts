@@ -1,5 +1,5 @@
-// :feature:favorites：编辑收藏 + 收藏弹层；第 17 步放旧收藏页用的组件（重构计划 §2.2）。ViewModel、Koin 模块、entry 声明在 commonMain；
-// 第 17 步旧 Screen 原样放 androidMain，阶段 D 重写进 commonMain。共用依赖由约定插件 trackr.kmp.feature 提供。
+// :feature:favorites：编辑收藏（重构计划 §2.2）。ViewModel、页面、Koin 模块、entry 都在 commonMain（第 22 步），没有 androidMain。
+// 共用依赖由约定插件 trackr.kmp.feature 提供。
 plugins {
     alias(libs.plugins.trackr.kmp.feature)
 }

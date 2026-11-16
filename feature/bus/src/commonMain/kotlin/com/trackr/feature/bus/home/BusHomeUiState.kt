@@ -5,11 +5,13 @@ import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteStationLine
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.NearbyStop
 import com.trackr.core.model.ProvinceCityCatalog
 import com.trackr.core.model.TrackingSession
 import com.trackr.core.model.TrackingSessionState
 import com.trackr.core.model.TransitCity
+import com.trackr.core.model.isLenzOnlyCity
 import com.trackr.ui.components.arrival.ArrivalUi
 
 /**
@@ -61,10 +63,17 @@ data class BusHomeUiState(
     val trackingSessions: List<TrackingSession> = emptyList(),
     val isRefreshing: Boolean = false,
     val engineMode: EngineMode = EngineMode.CHELAILE,
+    /** 当前连不上数据源的城市名（掌上出行一城一服务器，常在线的没几台） */
+    val unreachableCityNames: Set<String> = emptySet(),
+    /** 当前城市能整体列出来的线路（掌上出行县级城市）；别的数据源列不了，是空的 */
+    val cityLines: List<CityLineUi> = emptyList(),
+    val isLoadingCityLines: Boolean = false,
     /** 「每次询问」时点乘车码弹出的平台选择 */
     val isTransitCodeSheetOpen: Boolean = false,
     /** 右下角「乘车码」悬浮按钮显不显示（「我的」里可以关掉，用 NFC 的嫌它挡列表） */
     val showTransitCodeButton: Boolean = true,
+    /** 附近站卡片里的线按到站先后排（issue #56）；关时按数据源顺序。和站点页同一个开关，切了会记住 */
+    val sortNearbyByArrival: Boolean = false,
     /** 一次性消息（重构计划 §2.1 UDF）：页面显示后回调 [BusHomeEvent.MessageShown] */
     val userMessages: List<UserMessage> = emptyList(),
 
@@ -75,15 +84,26 @@ data class BusHomeUiState(
 ) {
     val filteredCities: List<TransitCity>
         get() {
+            // 本数据源支持的城市 + 朗斯独有的县级城市（如「范县」）；
+            // 后者在任何模式下都要能看到，否则用户切到车来了模式就永远选不到它（选中后会自动切源）。
             val baseList = when (engineMode) {
-                EngineMode.MYGOLBS -> cities.filter { !it.mygolbsCityCode.isNullOrBlank() }
-                EngineMode.CHELAILE -> cities.filter { it.cityId.isNotBlank() }
+                EngineMode.MYGOLBS -> cities.filter {
+                    !it.mygolbsCityCode.isNullOrBlank() || it.isLenzOnlyCity
+                }
+                EngineMode.CHELAILE -> cities.filter {
+                    it.cityId.isNotBlank() || it.isLenzOnlyCity
+                }
+                EngineMode.LENZ -> cities.filter {
+                    !it.lenzServerIp.isNullOrBlank() || it.cityId.isNotBlank()
+                }
             }
             if (citySearchQuery.isBlank()) return baseList
             val q = citySearchQuery.trim().lowercase()
             return baseList.filter {
                 it.cityName.lowercase().contains(q) ||
                     it.pinyin.lowercase().contains(q) ||
+                    // 搜上级地级市也能搜到下面的县（搜「濮阳」出范县 / 清丰 / 台前）
+                    it.lenzRegion.orEmpty().lowercase().contains(q) ||
                     (it.province.ifBlank { ProvinceCityCatalog.inferProvince(it.cityName) }).lowercase().contains(q)
             }
         }
@@ -119,6 +139,20 @@ data class LineTarget(
     val stopId: String,
     val source: DataSourceType,
     val lineName: String
+)
+
+/**
+ * 首页「本城线路」里的一行（掌上出行县级城市直接列全部线路）。
+ * 一条线路只占一行；正反两个方向都有的，起点终点之间用「⇄」表示，进详情可以换向。
+ */
+data class CityLineUi(
+    val key: String,
+    val lineName: String,
+    val startStop: String,
+    val endStop: String,
+    /** 有对开方向（upDown 0/1 都有） */
+    val isBidirectional: Boolean,
+    val open: LineTarget
 )
 
 /** 打开站点页要的参数（和 `ScreenKey.StopDetail` 一一对应） */
@@ -157,8 +191,11 @@ data class TrackingCardUi(
 
 /** 收藏合一列表里的一行 */
 sealed interface FavoriteRowUi {
-    /** 合一列表的 key（`stop_x` / `route_x`，两种类型间不重复） */
+    /** 合一列表的 key（`stop_x` / `route_x` / `station_x`，类型之间不重复） */
     val key: String
+
+    /** 所在分组的颜色（issue #38），卡片左边画一条色条；不分组或分组没设颜色时为 null */
+    val groupColor: GroupColor?
 
     /**
      * 收藏的车：「325 · 科技园站上车 · → 科技园」+ 到站。
@@ -172,7 +209,29 @@ sealed interface FavoriteRowUi {
         val direction: String,
         val arrival: ArrivalUi,
         val open: LineTarget,
-        val spoken: String = ""
+        val spoken: String = "",
+        override val groupColor: GroupColor? = null
+    ) : FavoriteRowUi
+
+    /**
+     * 收藏的站（issue #47）：「科技园站 · 往北」+ 最先到的几条线「19 2 分 · 325 4 分」+ 最先到那辆的大字。
+     *
+     * @param lines 按到站先后最多 [com.trackr.feature.bus.home.BusHomeMapper.STATION_PREVIEW_LINES] 条
+     * @param lineCount 这个站台一共几条线；还没查到时为 0
+     * @param status 还在查 / 查到了 / 查不到这个站
+     * @param arrival 最先到那辆的大字；查不到时为 null
+     * @param spoken「读给我听」读的整句（长辈版）
+     */
+    data class Station(
+        override val key: String,
+        val title: String,
+        val lines: List<StationLineUi>,
+        val lineCount: Int,
+        val status: StationStatus,
+        val arrival: ArrivalUi?,
+        val open: StopTarget,
+        val spoken: String = "",
+        override val groupColor: GroupColor? = null
     ) : FavoriteRowUi
 
     /** 收藏的路线：「家 → 公司」+「325 › 19 · 换乘 1 次」 */
@@ -180,9 +239,21 @@ sealed interface FavoriteRowUi {
         override val key: String,
         val routeId: String,
         val title: String,
-        val linesText: String
+        val linesText: String,
+        override val groupColor: GroupColor? = null
     ) : FavoriteRowUi
 }
+
+/** 收藏的站有没有拿到数据 */
+enum class StationStatus { Loading, Ready, NotFound }
+
+/** 收藏的站里的一条线：「19」「2 分」（[short] 是到站的短写） */
+data class StationLineUi(
+    val lineName: String,
+    val direction: String,
+    val short: String,
+    val arrival: ArrivalUi
+)
 
 /** 附近的一个站 */
 data class NearbyStopUi(

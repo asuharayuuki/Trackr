@@ -1,5 +1,6 @@
 package com.trackr.ui.screens.me
 
+import com.trackr.core.domain.platform.BoardingTraceLog
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.RailMode
 import com.trackr.core.model.ThemeMode
@@ -50,15 +51,51 @@ class MeViewModelTest {
 
     private fun createViewModel(
         liveUpdateAccess: LiveUpdateAccess? = liveUpdate,
-        versionName: String? = "0.0.3"
+        versionName: String? = "0.0.3",
+        boardingTrace: BoardingTraceLog? = null
     ) = MeViewModel(
         settings = settings,
         reminderRepository = reminders,
         amapKeys = amapKeys,
         notices = notices,
         liveUpdateAccess = liveUpdateAccess,
-        versionName = versionName
+        versionName = versionName,
+        boardingTrace = boardingTrace
     )
+
+    /** 假的判定记录：[shareResult] 是分享面板开没开成 */
+    private class FakeBoardingTraceLog(var shareResult: Boolean) : BoardingTraceLog {
+        var shares = 0
+        override fun record(line: String) = Unit
+        override suspend fun share(): Boolean {
+            shares++
+            return shareResult
+        }
+    }
+
+    @Test
+    fun exportBoardingTrace_rowOnlyWhenPlatformHasLog_andTellsUserWhenEmpty() = runTest(main.dispatcher) {
+        // 平台没有判定记录（iOS）：不显示那一行
+        assertFalse(createViewModel().uiState.value.canExportBoardingTrace)
+
+        val trace = FakeBoardingTraceLog(shareResult = false)
+        val viewModel = createViewModel(boardingTrace = trace)
+        assertTrue(viewModel.uiState.value.canExportBoardingTrace)
+
+        // 还没有记录：提示一句
+        viewModel.onEvent(MeEvent.ExportBoardingTrace)
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, trace.shares)
+        assertEquals(listOf(NO_BOARDING_TRACE_MESSAGE), viewModel.uiState.value.userMessages.map { it.text })
+
+        // 分享面板开了：不再提示
+        viewModel.onEvent(MeEvent.MessageShown(viewModel.uiState.value.userMessages.single().id))
+        trace.shareResult = true
+        viewModel.onEvent(MeEvent.ExportBoardingTrace)
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, trace.shares)
+        assertTrue(viewModel.uiState.value.userMessages.isEmpty())
+    }
 
     @Test
     fun initialState_reflectsRepositories() = runTest(main.dispatcher) {
@@ -177,6 +214,18 @@ class MeViewModelTest {
         viewModel.onEvent(MeEvent.SetShowTransitCodeButton(true))
         testScheduler.advanceUntilIdle()
         assertTrue(viewModel.uiState.value.showTransitCodeButton)
+    }
+
+    @Test
+    fun voiceAlerts_switchWritesSetting_andDefaultsOff() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertFalse(viewModel.uiState.value.voiceAlerts)
+
+        viewModel.onEvent(MeEvent.SetVoiceAlerts(true))
+        testScheduler.runCurrent()
+        assertTrue(settings.voiceAlerts.value)
+        assertTrue(viewModel.uiState.value.voiceAlerts)
     }
 
     @Test

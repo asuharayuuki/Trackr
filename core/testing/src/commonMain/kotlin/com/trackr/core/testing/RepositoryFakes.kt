@@ -2,17 +2,21 @@ package com.trackr.core.testing
 
 import com.trackr.core.model.ThemeColors
 import com.trackr.core.data.repository.FavoritesRepository
+import com.trackr.core.data.repository.LineDetailUpdate
 import com.trackr.core.data.repository.LocationRepository
 import com.trackr.core.data.repository.RealtimeRepository
 import com.trackr.core.data.repository.SearchHistoryRepository
 import com.trackr.core.data.repository.SettingsRepository
 import com.trackr.core.domain.tracking.LocationCadence
 import com.trackr.core.model.BusLineDetail
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.BusLineDirection
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
+import com.trackr.core.model.GroupColor
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
@@ -67,6 +71,10 @@ class FakeSettingsRepository(
 
     private val _autoStopAfterBoarding = MutableStateFlow(true)
     override val autoStopAfterBoarding: StateFlow<Boolean> = _autoStopAfterBoarding.asStateFlow()
+    private val _voiceAlerts = MutableStateFlow(false)
+    override val voiceAlerts: StateFlow<Boolean> = _voiceAlerts.asStateFlow()
+    private val _sortLinesByArrival = MutableStateFlow(false)
+    override val sortLinesByArrival: StateFlow<Boolean> = _sortLinesByArrival.asStateFlow()
 
     private val _nearbyStopsCount = MutableStateFlow(4)
     override val nearbyStopsCount: StateFlow<Int> = _nearbyStopsCount.asStateFlow()
@@ -139,6 +147,14 @@ class FakeSettingsRepository(
         _autoStopAfterBoarding.value = enabled
     }
 
+    override fun setVoiceAlerts(enabled: Boolean) {
+        _voiceAlerts.value = enabled
+    }
+
+    override fun setSortLinesByArrival(enabled: Boolean) {
+        _sortLinesByArrival.value = enabled
+    }
+
     override fun setAlertThresholdStops(stops: Int) {
         _alertThresholdStops.value = stops.coerceIn(1, 3)
     }
@@ -160,11 +176,15 @@ class FakeSettingsRepository(
 class FakeFavoritesRepository(
     initialFavorites: List<FavoriteStationLine> = emptyList(),
     initialRoutes: List<TransitGroup> = emptyList(),
-    initialGroups: List<FavoriteGroup> = emptyList()
+    initialGroups: List<FavoriteGroup> = emptyList(),
+    initialStations: List<FavoriteStation> = emptyList()
 ) : FavoritesRepository {
 
     private val _favorites = MutableStateFlow(initialFavorites)
     override val favorites: StateFlow<List<FavoriteStationLine>> = _favorites.asStateFlow()
+
+    private val _favoriteStations = MutableStateFlow(initialStations)
+    override val favoriteStations: StateFlow<List<FavoriteStation>> = _favoriteStations.asStateFlow()
 
     private val _routes = MutableStateFlow(initialRoutes)
     override val routes: StateFlow<List<TransitGroup>> = _routes.asStateFlow()
@@ -184,7 +204,9 @@ class FakeFavoritesRepository(
     private var nextGroupId = 1
 
     private fun buildItems(): List<FavoriteItem> {
-        val all = _favorites.value.map { FavoriteItem.stopKey(it.id) to it } + _routes.value.map { FavoriteItem.routeKey(it.id) to it }
+        val all = _favorites.value.map { FavoriteItem.stopKey(it.id) to it } +
+            _favoriteStations.value.map { FavoriteItem.stationKey(it.id) to it } +
+            _routes.value.map { FavoriteItem.routeKey(it.id) to it }
         val rank = order.withIndex().associate { it.value to it.index }
         return all.withIndex()
             .sortedWith(compareBy({ rank[it.value.first] ?: (order.size + it.index) }, { it.index }))
@@ -192,6 +214,7 @@ class FakeFavoritesRepository(
                 val (key, value) = entry.value
                 when (value) {
                     is FavoriteStationLine -> FavoriteItem.Stop(value, groupOf[key], index)
+                    is FavoriteStation -> FavoriteItem.Station(value, groupOf[key], index)
                     else -> {
                         val route = value as TransitGroup
                         // 显式设成 null（拖到「不分组」）要盖掉路线自己的 customGroupId
@@ -221,6 +244,23 @@ class FakeFavoritesRepository(
 
     override suspend fun removeFavorite(id: String) {
         _favorites.update { list -> list.filterNot { it.id == id } }
+        refresh()
+    }
+
+    override suspend fun toggleStation(station: FavoriteStation): Boolean {
+        val exists = _favoriteStations.value.any { it.id == station.id }
+        _favoriteStations.update { list -> if (exists) list.filterNot { it.id == station.id } else list + station }
+        refresh()
+        return !exists
+    }
+
+    override suspend fun updateStation(station: FavoriteStation) {
+        _favoriteStations.update { list -> list.map { if (it.id == station.id) station else it } }
+        refresh()
+    }
+
+    override suspend fun removeStation(id: String) {
+        _favoriteStations.update { list -> list.filterNot { it.id == id } }
         refresh()
     }
 
@@ -258,14 +298,23 @@ class FakeFavoritesRepository(
         refresh()
     }
 
-    override suspend fun createGroup(name: String): FavoriteGroup {
-        val group = FavoriteGroup(id = "fake_group_${nextGroupId++}", name = name.trim(), sortOrder = _favoriteGroups.value.size)
+    override suspend fun createGroup(name: String, color: GroupColor?): FavoriteGroup {
+        val group = FavoriteGroup(
+            id = "fake_group_${nextGroupId++}",
+            name = name.trim(),
+            sortOrder = _favoriteGroups.value.size,
+            color = color
+        )
         _favoriteGroups.update { it + group }
         return group
     }
 
     override suspend fun renameGroup(groupId: String, newName: String) {
         _favoriteGroups.update { list -> list.map { if (it.id == groupId) it.copy(name = newName.trim()) else it } }
+    }
+
+    override suspend fun setGroupColor(groupId: String, color: GroupColor?) {
+        _favoriteGroups.update { list -> list.map { if (it.id == groupId) it.withColor(color) else it } }
     }
 
     override suspend fun deleteGroup(groupId: String) {
@@ -339,6 +388,14 @@ class FakeRealtimeRepository(
     /** [getLineDetail] 返回前先跑一下（测试用来挂起、数并发）；null = 直接返回 */
     var lineDetailHook: (suspend (lineId: String) -> Unit)? = null
 
+    /** 每次 [getLineDetail] 请求的候车站序（按调用顺序） */
+    val lineDetailTargetOrders: MutableList<Int?> = mutableListOf()
+
+    /** 测试推「别处刚拿到的线路详情」 */
+    val lineDetailUpdateFlow = MutableSharedFlow<LineDetailUpdate>(extraBufferCapacity = 16)
+
+    override val lineDetailUpdates: Flow<LineDetailUpdate> get() = lineDetailUpdateFlow
+
     /** 记录每次附近站点查询的 (城市, 纬度, 经度) */
     val nearbyStopsCalls: MutableList<Triple<TransitCity, Double, Double>> = mutableListOf()
 
@@ -348,7 +405,19 @@ class FakeRealtimeRepository(
     /** 可按查询坐标返回不同结果；为 null 时统一返回 [nearbyStopsResult] */
     var nearbyStopsResultProvider: ((TransitCity, Double, Double) -> Result<List<NearbyStop>>)? = null
 
+    /** 「本城全部线路」结果；[listAllLinesResultProvider] 可按城市返回不同结果 */
+    var listAllLinesResult: Result<List<BusLineSummary>> = Result.success(emptyList())
+    var listAllLinesResultProvider: ((TransitCity) -> Result<List<BusLineSummary>>)? = null
+
+    /** 每次 [listAllLines] 请求的城市（按调用顺序） */
+    val listAllLinesCalls: MutableList<TransitCity> = mutableListOf()
+
     override suspend fun getSupportedCities(forceRefresh: Boolean): Result<List<TransitCity>> = supportedCitiesResult
+
+    override suspend fun listAllLines(city: TransitCity): Result<List<BusLineSummary>> {
+        listAllLinesCalls += city
+        return listAllLinesResultProvider?.invoke(city) ?: listAllLinesResult
+    }
 
     override suspend fun resolveCityByLocation(wgsLat: Double, wgsLng: Double): Result<TransitCity?> =
         resolveCityResult ?: Result.success(currentCity())
@@ -398,6 +467,7 @@ class FakeRealtimeRepository(
         directionHint: Int
     ): Result<BusLineDetail> {
         lineDetailCalls += lineId
+        lineDetailTargetOrders += targetOrder
         lineDetailHook?.invoke(lineId)
         lineDetailsMap[lineId]?.let { return Result.success(it) }
         lineDetailResult?.let { return it }

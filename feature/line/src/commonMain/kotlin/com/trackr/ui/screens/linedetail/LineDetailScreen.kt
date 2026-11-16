@@ -92,6 +92,7 @@ import com.trackr.core.designsystem.resources.ic_star_filled
 import com.trackr.core.designsystem.resources.ic_swap
 import com.trackr.core.designsystem.resources.transit_code
 import com.trackr.core.designsystem.theme.busColors
+import com.trackr.core.designsystem.theme.TrackrTheme
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusStop
 import com.trackr.core.model.LineOperatingState
@@ -99,9 +100,12 @@ import com.trackr.core.model.LiveBus
 import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.model.displayLineName
+import com.trackr.core.model.displayLineNameWithoutDiversion
+import com.trackr.core.model.diversionNote
 import com.trackr.feature.line.resources.Res as LineRes
 import com.trackr.feature.line.resources.line_detail_error
 import com.trackr.feature.line.resources.line_detail_fare
+import com.trackr.feature.line.resources.line_detail_diversion_body
 import com.trackr.feature.line.resources.line_detail_hours
 import com.trackr.feature.line.resources.line_detail_loading
 import com.trackr.feature.line.resources.line_detail_reminder
@@ -120,6 +124,7 @@ import com.trackr.ui.components.routeRailItemIndex
 import com.trackr.ui.components.routeRailItems
 import com.trackr.ui.components.timetable.TimetableBottomSheet
 import com.trackr.ui.screens.linedetail.components.BusFollowContent
+import com.trackr.ui.screens.linedetail.components.FollowTrackAction
 import com.trackr.ui.screens.linedetail.components.BusListContent
 import com.trackr.ui.screens.linedetail.components.FavoriteGroupPickerSheet
 import com.trackr.ui.screens.linedetail.components.StationArrivalContent
@@ -156,6 +161,8 @@ sealed interface LineDetailEvent {
     ) : LineDetailEvent
     /** 底栏主按钮：追踪这班车 / 结束追踪 */
     data object ToggleTracking : LineDetailEvent
+    /** 单车跟随里的「追这辆车」/「结束」（issue #52 下车提醒：只追这一辆到当前候车站） */
+    data object ToggleTrackFollowedBus : LineDetailEvent
     /** 底栏乘车码：一点就开默认渠道，「每次询问」才弹选择 */
     data object OpenTransitCode : LineDetailEvent
     data object DismissTransitCodeSheet : LineDetailEvent
@@ -255,7 +262,7 @@ fun LineDetailScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             LineTopBar(
-                title = static?.line?.displayLineName?.takeIf { it.isNotBlank() } ?: state.lineNameHint,
+                title = static?.line?.displayLineNameWithoutDiversion?.takeIf { it.isNotBlank() } ?: state.lineNameHint,
                 isFavorite = state.isFavorite,
                 actionsEnabled = static != null && state.selectedStop != null,
                 onBack = { onEvent(LineDetailEvent.Back) },
@@ -348,6 +355,7 @@ fun LineDetailScreen(
                                 static = static,
                                 onOpenTimetable = { onEvent(LineDetailEvent.OpenTimetable) }
                             )
+                            static.line.diversionNote?.let { DiversionBanner(note = it) }
                             if (hasError) {
                                 ErrorBanner(
                                     text = state.errorMessage.orEmpty(),
@@ -454,6 +462,7 @@ fun LineDetailScreen(
     val selectedStop = state.selectedStop
     if (state.isReminderDialogOpen && static != null && selectedStop != null) {
         ScheduledReminderDialog(
+            supportsAutoStart = state.supportsAutoStartReminders,
             lineName = static.line.name,
             endStopName = static.line.endStop,
             targetStopName = selectedStop.name,
@@ -557,6 +566,33 @@ private fun DirectionHeader(
     }
 }
 
+/** 临时改道提示条：线路名里带「（临时改道）」时显示，标题已去掉这截括号 */
+@Composable
+private fun DiversionBanner(note: String) {
+    Surface(
+        color = TrackrTheme.colors.warn.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics(mergeDescendants = true) {}
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(
+                text = note,
+                color = TrackrTheme.colors.warn,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = stringResource(LineRes.string.line_detail_diversion_body, note),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
 @Composable
 private fun ErrorBanner(text: String, onRetry: () -> Unit) {
     Surface(
@@ -650,14 +686,28 @@ private fun HeroCard(
 
                 PanelMode.BUS_FOLLOW -> {
                     val detail = rememberLineDetail(static, state.live)
+                    val followedBus = detail.buses.find { it.busId == state.followedBusId }
                     BusFollowContent(
                         lineDetail = detail,
-                        followedBus = detail.buses.find { it.busId == state.followedBusId },
-                        onBack = { onEvent(LineDetailEvent.BackFromPanel) }
+                        followedBus = followedBus,
+                        onBack = { onEvent(LineDetailEvent.BackFromPanel) },
+                        trackAction = followTrackAction(state, followedBus),
+                        onToggleTrackBus = { onEvent(LineDetailEvent.ToggleTrackFollowedBus) }
                     )
                 }
             }
         }
+    }
+}
+
+/** 单车跟随底部「追这辆车」按钮的样子（issue #52）；没选候车站、车已不在线上时不画 */
+internal fun followTrackAction(state: LineDetailUiState, followedBus: LiveBus?): FollowTrackAction? {
+    val stop = state.selectedStop ?: return null
+    val bus = followedBus ?: return null
+    return when {
+        state.trackedPinnedBusId == bus.busId -> FollowTrackAction.Tracking(stop.name)
+        bus.order > stop.order -> FollowTrackAction.Passed(stop.name)
+        else -> FollowTrackAction.Available(stop.name)
     }
 }
 

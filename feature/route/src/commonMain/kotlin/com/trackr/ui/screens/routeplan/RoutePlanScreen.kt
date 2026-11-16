@@ -8,14 +8,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -29,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import com.trackr.ui.bottombar.LocalBottomBarHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,9 +64,6 @@ import com.trackr.ui.screens.routeplan.map.RouteMap
 import com.trackr.ui.screens.routeplan.panel.SchemePanel
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
-
-/** 底栏（悬浮，页面画在它下面）的高度；方案面板底部要让开它 */
-private val BOTTOM_BAR_HEIGHT = 80.dp
 
 /**
  * 路线规划页（无状态）：全屏地图（没 Android Key / 平台没地图时只留底色）+ 顶部搜索岛 + 底部方案面板。
@@ -112,7 +113,6 @@ fun RoutePlanScreen(
             NoMapBackground()
         }
 
-        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         SearchConsole(
             originText = state.originText,
             destText = state.destText,
@@ -122,13 +122,15 @@ fun RoutePlanScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(top = statusBarPadding + 10.dp, start = 16.dp, end = 16.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .padding(top = 10.dp, start = 16.dp, end = 16.dp)
         )
 
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
         ) {
             SnackbarHost(hostState = snackbarHostState, modifier = Modifier.fillMaxWidth())
             BottomSheetCard(
@@ -178,7 +180,7 @@ private fun BottomSheetCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = navBarPadding + BOTTOM_BAR_HEIGHT + 12.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = navBarPadding + LocalBottomBarHeight.current + 12.dp)
         ) {
             Box(
                 modifier = Modifier

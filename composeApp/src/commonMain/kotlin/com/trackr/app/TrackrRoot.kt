@@ -12,10 +12,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.ime
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,7 +36,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation3.runtime.NavKey
@@ -63,6 +60,8 @@ import com.trackr.feature.stop.stopEntries
 import com.trackr.ui.navigation.LocalAppViewModelStoreOwner
 import com.trackr.ui.navigation.rememberVisibleTabs
 import com.trackr.ui.bottombar.LocalBottomBarCollapseOffset
+import com.trackr.ui.bottombar.LocalBottomBarHeight
+import com.trackr.app.navigation.AppTabBar
 import com.trackr.feature.bus.home.BusHomeViewModel
 import com.trackr.ui.screens.routedetail.RouteDetailViewModel
 import com.trackr.ui.screens.routeplan.RoutePlanViewModel
@@ -116,7 +115,7 @@ fun TrackrRoot(
                         }
                     )
                 }
-                // 申请定位与通知权限（Android：首次打开时弹说明再申请；iOS 阶段 G 再做）。
+                // 申请定位与通知权限（Android：首次打开时弹说明再申请；iOS：直接申请使用期间定位）。
                 // 说明对话框和系统权限弹窗都关掉后，系统字体 ≥ 1.3 倍时再提示一次「试试长辈版」，两个对话框不叠在一起
                 PermissionOnboarding {
                     FontScalePrompt(
@@ -140,8 +139,8 @@ private fun TrackrNavApp(
     val navigationState = rememberNavigationState()
     val navigator = remember(navigationState) { Navigator(navigationState) }
 
-    // 原来在这里（NavDisplay 外）取、跨页共享的 ViewModel：首页（首页 / 权限回调）、FavoritesGroupViewModel（规划页 / 收藏页）。
-    // 拆开后仍在这里先取一次 Activity 级的实例，创建时机和原来一样（收藏的自动 ETA 刷新、一次性数据修复都从这时开始）
+    // 跨页共享的 ViewModel：首页（首页 / 权限回调）、规划页和路线详情（规划页 / 路线详情页共用）。
+    // 在这里（NavDisplay 外）先取一次 Activity 级的实例，收藏的自动 ETA 刷新、一次性数据修复都从这时开始
     val appViewModelStoreOwner = LocalAppViewModelStoreOwner.current
     val homeViewModel = koinViewModel<BusHomeViewModel>(viewModelStoreOwner = appViewModelStoreOwner)
     // 首页 ViewModel 建好就开着轮询；恢复到别的页签、或首页栈顶是子页时首页 Route 不组合，没人关它。
@@ -194,6 +193,7 @@ private fun TrackrNavApp(
         onDeepLinkConsumed()
     }
 
+    val tabBar = koinInject<AppTabBar>()
     val isTopLevel = navigationState.isAtTabRoot
 
     // 控制滑动时底部导航栏平滑收起与展开
@@ -206,14 +206,14 @@ private fun TrackrNavApp(
         }
     }
 
-    val nestedScrollConnection = remember(isTopLevel) {
+    val nestedScrollConnection = remember(isTopLevel, tabBar) {
         object : NestedScrollConnection {
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
-                if (isTopLevel) {
+                if (isTopLevel && tabBar.collapsesOnScroll) {
                     // 手指向上推，浏览下方更多内容 -> 向下滑出隐藏导航栏
                     if (consumed.y < -8f) {
                         isNavigationBarVisible = false
@@ -246,51 +246,45 @@ private fun TrackrNavApp(
         navBarTranslationY * (navBarHeightPx - systemNavBarInsetPx).coerceAtLeast(0)
     }
 
-    CompositionLocalProvider(LocalBottomBarCollapseOffset provides bottomBarCollapseOffset) {
+    val keyboardVisible = WindowInsets.ime.getBottom(density) > systemNavBarInsetPx
+    val showTabBar = isTopLevel && (tabBar.collapsesOnScroll || !keyboardVisible)
+    val tabBarContentHeight = if (!showTabBar) 0.dp else if (navBarHeightPx == 0) {
+        tabBar.initialContentHeight
+    } else with(density) { (navBarHeightPx - systemNavBarInsetPx).coerceAtLeast(0).toDp() }
+    val onSelectTab: (ScreenKey) -> Unit = { key ->
+        if (key == ScreenKey.RoutePlan && privacyConsent != true) {
+            showAmapPrivacyDialog = true
+        } else {
+            navigator.selectTab(key)
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalBottomBarCollapseOffset provides bottomBarCollapseOffset,
+        LocalBottomBarHeight provides tabBarContentHeight,
+    ) {
         Scaffold(
             modifier = Modifier.nestedScroll(nestedScrollConnection),
             contentWindowInsets = WindowInsets(0.dp),
             bottomBar = {
-                AnimatedVisibility(
-                    visible = isTopLevel,
-                    enter = slideInVertically(
-                        initialOffsetY = { it },
-                        animationSpec = tween(280)
-                    ) + fadeIn(animationSpec = tween(200)),
-                    exit = slideOutVertically(
-                        targetOffsetY = { it },
-                        animationSpec = tween(280)
-                    ) + fadeOut(animationSpec = tween(200))
-                ) {
-                    NavigationBar(
-                        modifier = Modifier
-                            .onSizeChanged { navBarHeightPx = it.height }
-                            .graphicsLayer {
-                                translationY = navBarTranslationY * size.height
-                            }
-                    ) {
-                        visibleTabs.forEach { key ->
-                            val label = bottomTabLabel(key)
-                            NavigationBarItem(
-                                selected = navigationState.topLevel == key,
-                                // 点当前页签回到它的根页；点别的页签切过去，各自的返回栈保留
-                                onClick = dropUnlessResumed {
-                                    if (key == ScreenKey.RoutePlan && privacyConsent != true) {
-                                        showAmapPrivacyDialog = true
-                                    } else {
-                                        navigator.selectTab(key)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = bottomTabIcon(key),
-                                        contentDescription = label
-                                    )
-                                },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
+                val bar: @Composable () -> Unit = {
+                    tabBar.Content(
+                        tabs = visibleTabs,
+                        selected = navigationState.topLevel,
+                        onSelect = onSelectTab,
+                        modifier = Modifier.onSizeChanged { navBarHeightPx = it.height },
+                    )
+                }
+                if (tabBar.collapsesOnScroll) {
+                    AnimatedVisibility(
+                        visible = showTabBar,
+                        enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(280)) + fadeIn(tween(200)),
+                        exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280)) + fadeOut(tween(200)),
+                        modifier = Modifier.graphicsLayer { translationY = navBarTranslationY * size.height },
+                    ) { bar() }
+                } else if (showTabBar) {
+                    // 原生视图不套 Compose 图层位移动画，避免点击区域和 UIKit 位置不同步。
+                    bar()
                 }
             }
         ) { _ ->

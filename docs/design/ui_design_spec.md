@@ -1,5 +1,7 @@
 # BusOnRoad（追客）全套 UI 设计稿与交互规范说明书 (UI Spec v1.0)
 
+> **历史文档（2026-11-16 标注）**：v1 早期愿景稿，和现在的界面（设计稿 v3、长辈版）不一致，只留作参考。现状看 `docs/design/redesign_v3.html`、`docs/design/theme_colors.md` 和代码。
+
 > **设计基准**：严格遵循 Google **Material 3 (M3) Expressive** 设计规范与 Jetpack Compose 现代化声明式组件生态。  
 > **服务场景**：轻量级、秒开、低认知负荷、高信息密度的专业实时公交与换乘出行工具。
 

@@ -325,6 +325,7 @@ internal object WatchTogetherTracker {
                     boardingConfirmStreak = wl.confirmStreak,
                     boardingMissStreak = wl.missStreak,
                     boardingLastFixElapsedMillis = wl.lastFixElapsedMillis,
+                    boardingPositiveFixElapsedMillis = wl.positiveFixElapsedMillis,
                     updatedAtMillis = input.nowMillis
                 )
                 val result = BoardingDetector.evaluateCandidate(probe, candidate, input)
@@ -334,13 +335,15 @@ internal object WatchTogetherTracker {
                         return atStop(wl, candidate, candidateId, lp).copy(
                             confirmStreak = result.state.boardingConfirmStreak,
                             missStreak = result.state.boardingMissStreak,
-                            lastFixElapsedMillis = result.state.boardingLastFixElapsedMillis
+                            lastFixElapsedMillis = result.state.boardingLastFixElapsedMillis,
+                        positiveFixElapsedMillis = result.state.boardingPositiveFixElapsedMillis
                         )
                     }
                     BoardingDetector.Verdict.PENDING -> return atStop(wl, candidate, candidateId, lp).copy(
                         confirmStreak = result.state.boardingConfirmStreak,
                         missStreak = result.state.boardingMissStreak,
-                        lastFixElapsedMillis = result.state.boardingLastFixElapsedMillis
+                        lastFixElapsedMillis = result.state.boardingLastFixElapsedMillis,
+                        positiveFixElapsedMillis = result.state.boardingPositiveFixElapsedMillis
                     )
                     BoardingDetector.Verdict.MISSED -> {
                         // 没赶上：放掉这辆，改等这条线的下一班
@@ -383,7 +386,8 @@ internal object WatchTogetherTracker {
                 candidateBusId = best.busId,
                 candidateSinceMillis = input.nowMillis,
                 confirmStreak = 0,
-                missStreak = 0
+                missStreak = 0,
+                positiveFixElapsedMillis = -1L
             )
         }
         return line
@@ -406,7 +410,8 @@ internal object WatchTogetherTracker {
         candidateBusId = null,
         candidateSinceMillis = 0L,
         confirmStreak = 0,
-        missStreak = 0
+        missStreak = 0,
+        positiveFixElapsedMillis = -1L
     )
 
     /**

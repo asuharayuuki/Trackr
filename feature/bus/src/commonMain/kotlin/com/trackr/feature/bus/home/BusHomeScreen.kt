@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import com.trackr.ui.bottombar.LocalBottomBarHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,12 @@ internal object BusHomeTags {
     const val NEARBY_HEADER = "bus_home_nearby_header"
     fun favoriteRow(key: String) = "bus_home_fav_$key"
     fun groupChip(id: String?) = "bus_home_group_${id ?: "all"}"
+
+    /** 分组 chip 前的色点（分组设了颜色才有） */
+    fun groupChipDot(id: String) = "bus_home_group_dot_$id"
+
+    /** 卡片左边的分组色条，[cardTag] 是那张卡的 testTag */
+    fun accentStripe(cardTag: String) = "${cardTag}_accent"
     fun nearbyStop(key: String) = "bus_home_nearby_$key"
 }
 
@@ -111,7 +118,7 @@ fun BusHomeScreen(
                     onClick = { onEvent(BusHomeEvent.TransitCodeClicked) },
                     // 底栏（页签）盖在页面上面，按钮要让开它；底栏收起时再把它挪到系统导航栏上方
                     modifier = Modifier
-                        .padding(bottom = BOTTOM_BAR_HEIGHT)
+                        .padding(bottom = LocalBottomBarHeight.current)
                         .offset { IntOffset(0, bottomBarCollapseOffset().roundToInt()) }
                 )
             }
@@ -121,7 +128,7 @@ fun BusHomeScreen(
             UserMessageHost(
                 message = state.userMessages.firstOrNull()?.let { HostMessage(key = it.id, text = it.text) },
                 onResult = { key, _ -> onEvent(BusHomeEvent.MessageShown(key as Long)) },
-                modifier = Modifier.padding(bottom = BOTTOM_BAR_HEIGHT)
+                modifier = Modifier.padding(bottom = LocalBottomBarHeight.current)
             )
         }
     ) { innerPadding ->
@@ -151,7 +158,7 @@ fun BusHomeScreen(
                     end = innerPadding.calculateEndPadding(layoutDirection),
                     top = innerPadding.calculateTopPadding(),
                     // 留出底栏和悬浮按钮的高度，最后一个站不被挡住（按钮关掉了就不用留）
-                    bottom = innerPadding.calculateBottomPadding() + BOTTOM_BAR_HEIGHT +
+                    bottom = innerPadding.calculateBottomPadding() + LocalBottomBarHeight.current +
                         if (state.showTransitCodeButton) FAB_CLEARANCE else 0.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(TrackrTheme.dimens.spaceS)
@@ -179,6 +186,8 @@ fun BusHomeScreen(
 
                 favoritesSection(state = state, onEvent = onEvent)
 
+                cityLinesSection(state = state, onEvent = onEvent)
+
                 nearbySection(state = state, onEvent = onEvent)
             }
         }
@@ -195,7 +204,8 @@ fun BusHomeScreen(
             onSelectProvince = { onEvent(BusHomeEvent.ProvinceSelected(it)) },
             onSelectCity = { onEvent(BusHomeEvent.CitySelected(it)) },
             onRelocate = { onEvent(BusHomeEvent.RelocateCity) },
-            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) }
+            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) },
+            unreachableCityNames = state.unreachableCityNames
         )
     }
 
@@ -324,9 +334,6 @@ internal fun SectionHeader(
         }
     }
 }
-
-/** 底栏（页签）高度：它盖在页面上面，列表和悬浮按钮要让开 */
-private val BOTTOM_BAR_HEIGHT = 80.dp
 
 /** 悬浮按钮的高度 + 间距 */
 private val FAB_CLEARANCE = 72.dp

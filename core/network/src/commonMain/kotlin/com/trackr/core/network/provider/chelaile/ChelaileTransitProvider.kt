@@ -191,7 +191,7 @@ class ChelaileTransitProvider(
                         val needsFetch = stop.lines.isNotEmpty() && stop.lines.all { it.line.lineId.isBlank() }
                         val physicalStId = stop.physicalStId
                         if (needsFetch && !physicalStId.isNullOrBlank()) {
-                            // 其他物理站台的补全按站台缓存，10 秒轮询时不再每轮重复补全；
+                            // 其他物理站台的补全按站台缓存，3 秒轮询时不再每轮重复补全；
                             // 用户切到该站台后，页面会以它为主查询拿到最新实时数据
                             val cacheKey = "${city.cityId}|${stop.physicalStId}"
                             val subResult = runCatching {

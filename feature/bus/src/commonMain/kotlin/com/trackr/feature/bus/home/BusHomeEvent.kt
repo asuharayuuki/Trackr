@@ -11,7 +11,7 @@ sealed interface BusHomeEvent {
     data class OpenLine(val target: LineTarget) : BusHomeEvent
     data class OpenStop(val target: StopTarget) : BusHomeEvent
 
-    /** 点了收藏的路线（路线详情第 22 步做，先去旧收藏页） */
+    /** 点了收藏的路线（进路线详情） */
     data class OpenRoute(val routeId: String) : BusHomeEvent
 
     /** 收藏右上角「编辑」 */
@@ -23,6 +23,9 @@ sealed interface BusHomeEvent {
     // ---- 交给 ViewModel ----
     data object Refresh : BusHomeEvent
     data object RetryLocation : BusHomeEvent
+
+    /** 「附近」标题旁的排序切换：默认顺序 ↔ 先到的在前（issue #56） */
+    data class SetNearbySortByArrival(val enabled: Boolean) : BusHomeEvent
 
     /** 定位提示里的「去开启」：跳系统位置信息页（总开关 / 定位模式在那里） */
     data object OpenLocationSettings : BusHomeEvent

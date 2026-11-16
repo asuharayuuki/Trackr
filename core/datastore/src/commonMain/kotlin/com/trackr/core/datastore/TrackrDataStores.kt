@@ -57,6 +57,10 @@ object SettingsKeys {
      */
     val AUTO_STOP_AFTER_BOARDING = booleanPreferencesKey("auto_stop_after_boarding")
 
+    /** 语音播报提醒（issue #52）：追踪提醒同时朗读出来；没有 = 关 */
+    val VOICE_ALERTS = booleanPreferencesKey("voice_alerts")
+    val SORT_LINES_BY_ARRIVAL = booleanPreferencesKey("sort_lines_by_arrival")
+
     /** 界面模式（`UiMode` 的名字，第 30 步新加，旧存储没有这个键）；没有或认不出 = 标准版 */
     val UI_MODE = stringPreferencesKey("ui_mode")
 
@@ -83,6 +87,7 @@ object SettingsKeys {
 
 /** `trackr_amap_keys` 的键，和旧 SharedPreferences `trackr_amap_keys` 同名 */
 object AmapKeyKeys {
+    val IOS = stringPreferencesKey("custom_amap_ios_key")
     val ANDROID = stringPreferencesKey("custom_amap_android_key")
     val WEB = stringPreferencesKey("custom_amap_web_key")
     val PRIVACY_CONSENT = booleanPreferencesKey("privacy_consent")

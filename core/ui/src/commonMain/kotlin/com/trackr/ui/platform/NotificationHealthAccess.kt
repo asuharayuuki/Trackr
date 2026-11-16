@@ -9,6 +9,9 @@ package com.trackr.ui.platform
  * Android 实现在 `:androidApp` 的 PlatformBridgeModule；iOS 不绑定，那一行不显示。
  */
 interface NotificationHealthAccess {
+    /** Native asynchronous permission changes, when available. */
+    val changes: kotlinx.coroutines.flow.StateFlow<NotificationHealth>? get() = null
+
 
     /** 现在的状态；每次回到前台重查（用户可能刚去过系统设置） */
     fun status(): NotificationHealth

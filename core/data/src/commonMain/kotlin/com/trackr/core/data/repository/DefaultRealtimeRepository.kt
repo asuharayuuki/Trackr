@@ -1,12 +1,16 @@
 package com.trackr.core.data.repository
 
 import com.trackr.core.data.provider.TransitProviderCoordinator
+import com.trackr.core.domain.arrival.StopOrderResolver
 import com.trackr.core.domain.platform.MonotonicClock
 import com.trackr.core.domain.platform.ProcessMonotonicClock
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
+import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.BusStop
 import com.trackr.core.model.DataSourceType
+import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.FavoriteStation
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
 import com.trackr.core.model.NearbyStopLineStatus
@@ -25,7 +29,11 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import kotlin.concurrent.Volatile
 
@@ -89,6 +97,13 @@ class DefaultRealtimeRepository(
         clock = clock
     )
 
+    private val _lineDetailUpdates = MutableSharedFlow<LineDetailUpdate>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    override val lineDetailUpdates: Flow<LineDetailUpdate> = _lineDetailUpdates.asSharedFlow()
+
     /** 收藏卡「没车时下一班」的时刻表短缓存：同一条线 30 秒内只查一次 */
     private val favoriteTimetableFlights = SingleFlightCache<String, LineTimetable>(
         ttlMillis = FAVORITE_TIMETABLE_TTL_MS,
@@ -109,6 +124,13 @@ class DefaultRealtimeRepository(
         val cities = coordinator.getSupportedCities(forceRefresh)
         cachedCities = cities
         cities
+    }
+
+    override suspend fun unreachableCities(cities: List<TransitCity>): Set<String> =
+        runCatching { coordinator.unreachableCities(cities) }.getOrDefault(emptySet())
+
+    override suspend fun listAllLines(city: TransitCity): Result<List<BusLineSummary>> = runCatching {
+        coordinator.listAllLines(city, settings.engineMode.value)
     }
 
     override suspend fun resolveCityByLocation(wgsLat: Double, wgsLng: Double): Result<TransitCity?> = runCatching {
@@ -264,7 +286,13 @@ class DefaultRealtimeRepository(
             stationId = stationId
         )
         return suspendRunCatching {
-            lineDetailFlights.get(key) { fetchLineDetail(city, request) }
+            lineDetailFlights.get(key) {
+                fetchLineDetail(city, request).also { detail ->
+                    // 每份真正从上游拿到的数据都广播出去：追踪服务等车时直接用页面刚拿到的这份刷新通知，
+                    // 通知和页面就是同一份数据，也不多打一次请求（issue #41）
+                    _lineDetailUpdates.tryEmit(LineDetailUpdate(source, lineId, targetOrder, detail))
+                }
+            }
         }
     }
 
@@ -313,9 +341,12 @@ class DefaultRealtimeRepository(
 
     override suspend fun refreshFavoritesRealtime(): Result<Map<String, NearbyStop>> = runCatching {
         val favs = favoritesRepository.favorites.value
-        if (favs.isEmpty()) return@runCatching emptyMap()
+        val stations = favoritesRepository.favoriteStations.value
+        if (favs.isEmpty() && stations.isEmpty()) return@runCatching emptyMap()
 
         coroutineScope {
+            // 收藏的站（issue #47）：每个站 1 次站点请求，找回默认站台
+            val stationTasks = stations.map { station -> async { station.id to fetchFavoriteStation(station) } }
             val tasks = favs.map { fav ->
                 async {
                     val city = TransitCity(
@@ -323,18 +354,36 @@ class DefaultRealtimeRepository(
                         cityName = fav.cityName,
                         mygolbsCityCode = fav.mygolbsCityCode.takeIf { it.isNotBlank() }
                     )
-                    val lineRes = runCatching {
+                    suspend fun fetch(order: Int) = runCatching {
                         getLineDetail(
                             city = city,
                             lineId = fav.lineId,
-                            targetOrder = fav.targetOrder,
+                            targetOrder = order,
                             stationId = fav.targetStopId,
                             source = fav.source
                         ).getOrNull()
                     }.getOrNull()
 
+                    var targetOrder = fav.targetOrder
+                    var lineRes = fetch(targetOrder)
+                    // 早先从掌上公交站点页收藏的线，站序可能是错推的（issue #41「900 站」）：按站名找回真站序再查一次
+                    val corrected = lineRes?.let {
+                        StopOrderResolver.correctedOrder(
+                            stops = it.stops,
+                            order = targetOrder,
+                            stopName = fav.targetStopName,
+                            lat = fav.wgsLat,
+                            lng = fav.wgsLng,
+                            nameMismatchIsSuspect = fav.source == DataSourceType.MYGOLBS
+                        )
+                    }
+                    if (corrected != null) {
+                        targetOrder = corrected
+                        lineRes = fetch(corrected) ?: lineRes
+                    }
+
                     if (lineRes != null) {
-                        val approaching = lineRes.buses.filter { it.order <= fav.targetOrder }
+                        val approaching = lineRes.buses.filter { it.order <= targetOrder }
                         // 车来了的线路详情直接给下一班；掌上公交只有部分城市给 planTime，
                         // 没车又没给时回落时刻表，收藏卡才不会只剩「暂无在途车辆」。
                         val nextDeparture = lineRes.nextDepartureFromStart
@@ -345,7 +394,7 @@ class DefaultRealtimeRepository(
                             }
                         val lineStatus = NearbyStopLineStatus(
                             line = lineRes.line,
-                            targetOrder = fav.targetOrder,
+                            targetOrder = targetOrder,
                             targetStopId = fav.targetStopId,
                             targetStopName = fav.targetStopName,
                             statusText = lineRes.statusDescription,
@@ -363,13 +412,42 @@ class DefaultRealtimeRepository(
                     } else null
                 }
             }
-            tasks.awaitAll().filterNotNull().toMap()
+            val stationResults = stationTasks.awaitAll().mapNotNull { (id, stop) ->
+                stop?.let { FavoriteItem.stationKey(id) to it }
+            }
+            tasks.awaitAll().filterNotNull().toMap() + stationResults
         }
     }
 
+    /**
+     * 查一个收藏的站的默认站台。请求失败返回 null（首页沿用「正在查车」）；请求成功但找不到站台时返回一个
+     * 没有线路的站（首页显示「暂时查不到」）。
+     */
+    private suspend fun fetchFavoriteStation(station: FavoriteStation): NearbyStop? {
+        val city = TransitCity(
+            cityId = station.cityId,
+            cityName = station.cityName,
+            mygolbsCityCode = station.mygolbsCityCode.takeIf { it.isNotBlank() }
+        )
+        val platforms = getStopDetail(
+            city = city,
+            stopId = station.stopId.takeIf { it.isNotBlank() },
+            stopName = station.stopName.takeIf { it.isNotBlank() },
+            physicalStId = station.physicalStId.takeIf { it.isNotBlank() },
+            namesakeStId = station.namesakeStId.takeIf { it.isNotBlank() },
+            stationLat = station.wgsLat.takeIf { it > 0.0 },
+            stationLng = station.wgsLng.takeIf { it > 0.0 }
+        ).getOrNull() ?: return null
+        return StationPlatformMatcher.pick(platforms, station)
+            ?: NearbyStop(stopId = station.stopId, name = station.stopName, source = station.source)
+    }
+
     companion object {
-        /** 线路详情短缓存时长：小于详情页 10 秒轮询周期，保证每轮轮询仍拿到新数据 */
-        const val LINE_DETAIL_CACHE_TTL_MS = 6_000L
+        /**
+         * 线路详情短缓存时长：小于 3 秒的轮询周期，保证每轮轮询都拿到新数据；
+         * 只用来合并同一时刻的重复请求（追踪服务、线路页、首页同时请求同一条线）
+         */
+        const val LINE_DETAIL_CACHE_TTL_MS = 2_000L
         const val LINE_DETAIL_CACHE_MAX_ENTRIES = 64
 
         /** 收藏卡时刻表回落缓存时长 */

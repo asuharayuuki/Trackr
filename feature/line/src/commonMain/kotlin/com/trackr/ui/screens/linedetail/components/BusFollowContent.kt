@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,9 +18,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +57,11 @@ import com.trackr.feature.line.resources.line_follow_speed
 import com.trackr.feature.line.resources.line_follow_stops
 import com.trackr.feature.line.resources.line_follow_stops_flow
 import com.trackr.feature.line.resources.line_follow_title
+import com.trackr.feature.line.resources.line_follow_track_bus
+import com.trackr.feature.line.resources.line_follow_track_bus_hint
+import com.trackr.feature.line.resources.line_follow_track_passed
+import com.trackr.feature.line.resources.line_follow_tracking_bus
+import com.trackr.feature.line.resources.line_follow_tracking_bus_hint
 import com.trackr.feature.line.resources.line_follow_to_terminus
 import com.trackr.feature.line.resources.line_follow_unknown_plate
 import com.trackr.feature.line.resources.line_no_prediction
@@ -63,14 +72,33 @@ import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
 /**
+ * 单车跟随底部「追这辆车」（issue #52 下车提醒）的三种样子；[stopName] 是当前候车站（可以是下车站）。
+ */
+sealed interface FollowTrackAction {
+    val stopName: String
+
+    /** 还没追：点了只追这一辆到 [stopName] */
+    data class Available(override val stopName: String) : FollowTrackAction
+
+    /** 正在只追这一辆：点了结束 */
+    data class Tracking(override val stopName: String) : FollowTrackAction
+
+    /** 车已开过 [stopName]：不能追 */
+    data class Passed(override val stopName: String) : FollowTrackAction
+}
+
+/**
  * 状态 3：单车跟随行程轴内容 (`BUS_FOLLOW`)
+ * @param trackAction 底部「追这辆车」按钮；null = 不画（没选候车站、车已不在线上）
  */
 @Composable
 fun BusFollowContent(
     lineDetail: BusLineDetail,
     followedBus: LiveBus?,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trackAction: FollowTrackAction? = null,
+    onToggleTrackBus: () -> Unit = {}
 ) {
     val busColors = MaterialTheme.busColors
 
@@ -145,9 +173,12 @@ fun BusFollowContent(
                         Text(stringResource(LineRes.string.line_follow_to_terminus), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(stringResource(LineRes.string.line_follow_stops, stopsLeftToTerminus), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(LineRes.string.line_follow_speed), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${followedBus.speedKmh.toInt()} km/h", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                    // 掌上公交不给时速（一直是 0），车来了停站时也是 0：和线路列表、到站页一样，没有时速就不画这一栏（#58）
+                    if (followedBus.speedKmh > 0) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(stringResource(LineRes.string.line_follow_speed), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${followedBus.speedKmh.toInt()} km/h", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -324,5 +355,55 @@ fun BusFollowContent(
                 }
             }
         }
+
+        if (trackAction != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            FollowTrackButton(trackAction, onToggleTrackBus)
+        }
+    }
+}
+
+@Composable
+private fun FollowTrackButton(action: FollowTrackAction, onClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        when (action) {
+            is FollowTrackAction.Available -> Button(
+                onClick = onClick,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text(
+                    text = stringResource(LineRes.string.line_follow_track_bus, action.stopName),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            is FollowTrackAction.Tracking -> OutlinedButton(
+                onClick = onClick,
+                shape = MaterialTheme.shapes.medium,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text(
+                    text = stringResource(LineRes.string.line_follow_tracking_bus),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+
+            is FollowTrackAction.Passed -> Unit
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = when (action) {
+                is FollowTrackAction.Available -> stringResource(LineRes.string.line_follow_track_bus_hint, action.stopName)
+                is FollowTrackAction.Tracking -> stringResource(LineRes.string.line_follow_tracking_bus_hint, action.stopName)
+                is FollowTrackAction.Passed -> stringResource(LineRes.string.line_follow_track_passed, action.stopName)
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

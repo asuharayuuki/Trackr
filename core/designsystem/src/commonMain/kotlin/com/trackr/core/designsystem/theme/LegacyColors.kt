@@ -9,8 +9,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // 旧名别名：v3 之前的两套语义色（BusSemanticColors、ExtendedColors）。
-// 字段名不变，值全部指向 v3 色（TrackrColors + ColorScheme），旧页面不用改就换成新配色。
-// 新代码读 TrackrTheme.colors / MaterialTheme.colorScheme；阶段 D 页面重写时改掉，第 29 步删除本文件。
+// 字段名不变，值全部指向 v3 色（TrackrColors + ColorScheme）。
+// 线路页（走向条、主卡、车辆列表）、规划页和 :core:ui 的 BusArrivalBadge / LegLineColor 还在读这些旧名，所以本文件还不能删；
+// 新代码读 TrackrTheme.colors / MaterialTheme.colorScheme。
 
 /** 旧名：公交语义色。每个字段指向的 v3 色见 [legacyBusColors]。 */
 @Immutable

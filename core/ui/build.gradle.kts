@@ -1,6 +1,6 @@
 // 业务通用组件：KMP + Compose Multiplatform（Android + iosArm64 + iosSimulatorArm64）。
-// 被两个以上 feature 用的东西放这里（重构计划 §2.2）：commonMain 放轮询协调器等纯逻辑；
-// 第 17 步从 :androidApp 原样搬来的旧组件先放 androidMain，阶段 D 重写时再挪进 commonMain。
+// 被两个以上 feature 用的东西放这里（重构计划 §2.2）：组件和轮询协调器等纯逻辑都在 commonMain；
+// androidMain / iosMain 只放平台实现（剪贴板），androidMain 另有 LiveUpdateSettings 接口。
 plugins {
     alias(libs.plugins.trackr.kmp.library)
     alias(libs.plugins.trackr.kmp.compose)

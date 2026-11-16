@@ -5,9 +5,9 @@ import android.content.Context
 /**
  * 实时活动（Android 16 Live Update、小米焦点通知、OPPO 流体云）的设备判断和设置页跳转。
  *
- * 第 17 步过渡用：旧页面（线路详情、更多）原来直接调 `:androidApp` 里的厂商适配对象，页面搬进功能模块后看不到它们，
- * 改经这个接口（`:androidApp` 的实现原样转调 `LiveUpdatePromotion` / `XiaomiFocusAdapter` / `OppoFluidCloudAdapter`）。
- * 方法和原来的调用一一对应，参数里的 [Context] 也照旧由页面传入。
+ * 页面不直接用它：「我的」页读 commonMain 的 [LiveUpdateAccess]，`:androidApp` 的 `AndroidLiveUpdateAccess` 再经这个接口
+ * 调厂商适配对象（实现 `AndroidLiveUpdateSettings` 原样转调 `LiveUpdatePromotion` / `XiaomiFocusAdapter` / `OppoFluidCloudAdapter`）。
+ * 方法和厂商适配对象的调用一一对应，[Context] 由调用方传入。
  */
 interface LiveUpdateSettings {
     /** `LiveUpdatePromotion.isPromotionSupported()` */
